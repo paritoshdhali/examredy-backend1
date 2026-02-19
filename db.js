@@ -1,6 +1,6 @@
 const { Pool } = require('pg');
 require('dotenv').config();
-const bcrypt = require('bcrypt');
+const bcrypt = require('bcryptjs');
 
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
@@ -102,8 +102,15 @@ const initDB = async () => {
             await query(`INSERT INTO system_settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING;`, [key, value]);
         }
 
-        // Users
+        // Users Table & Schema Sync
         await query(`CREATE TABLE IF NOT EXISTS users (id SERIAL PRIMARY KEY, username VARCHAR(100) NOT NULL, email VARCHAR(100) UNIQUE NOT NULL, password VARCHAR(255) NOT NULL, role VARCHAR(20) DEFAULT 'user', is_premium BOOLEAN DEFAULT FALSE, premium_expiry TIMESTAMP, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);`);
+
+        // Ensure 'role' column exists (for cases where table already existed without it)
+        try {
+            await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(20) DEFAULT 'user';`);
+        } catch (e) {
+            console.log('Note: role column already exists or migration skipped.');
+        }
 
         // User Daily Usage
         await query(`CREATE TABLE IF NOT EXISTS user_daily_usage (user_id INTEGER REFERENCES users(id), date DATE DEFAULT CURRENT_DATE, count INTEGER DEFAULT 0, PRIMARY KEY (user_id, date));`);
