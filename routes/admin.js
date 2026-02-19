@@ -23,6 +23,18 @@ router.get('/diagnostic', async (req, res) => {
     }
 });
 
+// @route   GET /api/admin/debug-token
+// @desc    Debug Authorization header (No verifyToken middleware)
+router.get('/debug-token', (req, res) => {
+    const authHeader = req.headers.authorization || req.headers.Authorization;
+    res.json({
+        exists: !!authHeader,
+        format_valid: authHeader ? authHeader.toLowerCase().startsWith('bearer ') : false,
+        header_prefix: authHeader ? authHeader.substring(0, 10) : null,
+        received_at: new Date().toISOString()
+    });
+});
+
 // @route   POST /api/admin/login
 // @desc    Admin Login
 // @access  Public

@@ -4,12 +4,17 @@ const { query } = require('../db');
 const verifyToken = async (req, res, next) => {
     let token;
 
-    if (
-        req.headers.authorization &&
-        req.headers.authorization.startsWith('Bearer')
-    ) {
+    const authHeader = req.headers.authorization || req.headers.Authorization;
+
+    if (authHeader && authHeader.toLowerCase().startsWith('bearer')) {
         try {
-            token = req.headers.authorization.split(' ')[1];
+            token = authHeader.split(' ')[1];
+            console.log(`[AUTH-DEBUG] Token extracted for ${req.path}`);
+
+            if (!token) {
+                console.warn(`[AUTH-DEBUG] Authorization header found but token missing in ${req.path}`);
+                return res.status(401).json({ message: 'Not authorized, token missing in Bearer' });
+            }
 
             if (!token) {
                 return res.status(401).json({ message: 'Not authorized, token missing' });
