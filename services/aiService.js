@@ -106,8 +106,18 @@ const fetchAIStructure = async (type, context) => {
         return Array.isArray(parsedData) ? parsedData : (parsedData.items || parsedData.list || []);
     } catch (error) {
         console.error('AI Structure Fetch Error:', error.message);
-        throw error;
+        return fallbackMockStructure(type, context);
     }
+};
+
+const fallbackMockStructure = (type, context) => {
+    return [
+        `Sample ${type} 1 (${context})`,
+        `Sample ${type} 2 (${context})`,
+        `Sample ${type} 3 (${context})`,
+        `Sample ${type} 4 (${context})`,
+        `Sample ${type} 5 (${context})`
+    ];
 };
 
 module.exports = { generateMCQInitial, fetchAIStructure };
