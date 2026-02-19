@@ -67,11 +67,13 @@ router.get('/practice', verifyToken, subscriptionCheck, async (req, res) => {
 
     try {
         // Free user check via Transaction (Avoid Race Condition)
-        if (!req.isPremium && req.isPremium !== undefined) {
+        if (!req.isPremium) {
             await client.query('BEGIN');
 
-            const settingsResult = await client.query('SELECT value FROM system_settings WHERE key = \'FREE_DAILY_LIMIT\'');
-            const freeLimit = parseInt(settingsResult.rows[0].value || '2');
+            const settingsResult = await client.query('SELECT key, value FROM free_limit_settings');
+            const settings = Object.fromEntries(settingsResult.rows.map(r => [r.key, r.value]));
+            const freeLimit = parseInt(settings['FREE_SESSIONS_COUNT'] || '2');
+            const mcqsPerSession = parseInt(settings['FREE_SESSION_MCQS'] || '10');
 
             // Lock row for update
             const usageResult = await client.query(
@@ -86,7 +88,14 @@ router.get('/practice', verifyToken, subscriptionCheck, async (req, res) => {
 
             if (dailyCount >= freeLimit) {
                 await client.query('ROLLBACK');
-                return res.status(403).json({ message: 'Daily free limit reached', code: 'LIMIT_REACHED' });
+                return res.status(403).json({
+                    message: 'Daily free limit reached',
+                    code: 'LIMIT_REACHED',
+                    popup: {
+                        heading: settings['POPUP_HEADING'],
+                        text: settings['POPUP_TEXT']
+                    }
+                });
             }
 
             // Valid usage, increment count
@@ -98,6 +107,11 @@ router.get('/practice', verifyToken, subscriptionCheck, async (req, res) => {
              `, [req.user.id]);
 
             await client.query('COMMIT');
+
+            // Override limit from query if free user
+            requestedLimit = mcqsPerSession;
+        } else {
+            requestedLimit = parseInt(limit);
         }
 
         // Optimized Random Fetch (SYSTEM Sampling - ID based random is better but complex to implement without gap analysis, SYSTEM is fast for large tables)
@@ -124,19 +138,13 @@ router.get('/practice', verifyToken, subscriptionCheck, async (req, res) => {
                  FROM mcq_pool 
                  WHERE category_id = $1 AND is_approved = TRUE AND id >= $2
                  LIMIT $3`,
-                [category_id, randomId, limit]
+                [category_id, randomId, requestedLimit]
             );
 
-            // If we got fewer results (end of table), wrap around or fetch from beginning?
-            // For SaaS MVP, simple fallback if empty result is fine, or simple ORDER BY RANDOM() LIMITED to sub-selection.
-            // Improved Query:
-            if (result.rows.length < limit) {
-                // Not enough rows found after random ID, failover to simple fetch for now or allow partial
-                // (Strict random distribution require more complex logic)
-                // Let's fallback to standard Fetch for reliability if Primary method yields < limit (edge case at end of table)
+            if (result.rows.length < requestedLimit) {
                 const fallback = await query(
                     'SELECT id, question, options, subject, chapter FROM mcq_pool WHERE category_id = $1 AND is_approved = TRUE LIMIT $2',
-                    [category_id, limit]
+                    [category_id, requestedLimit]
                 );
                 result = fallback;
             }

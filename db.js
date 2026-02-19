@@ -178,38 +178,67 @@ const initDB = async () => {
         await query(`INSERT INTO subscription_plans (name, duration_hours, price) VALUES ('1 Hour Pass', 1, 10), ('3 Hour Pass', 3, 25) ON CONFLICT DO NOTHING;`);
         await query(`CREATE TABLE IF NOT EXISTS payments (id SERIAL PRIMARY KEY, user_id INTEGER REFERENCES users(id), razorpay_order_id VARCHAR(100), razorpay_payment_id VARCHAR(100), amount DECIMAL(10, 2), status VARCHAR(20), created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);`);
         await query(`CREATE TABLE IF NOT EXISTS referrals (id SERIAL PRIMARY KEY, referrer_id INTEGER REFERENCES users(id), referred_user_id INTEGER REFERENCES users(id), status VARCHAR(20) DEFAULT 'pending', reward_given BOOLEAN DEFAULT FALSE, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);`);
-        await query(`CREATE TABLE IF NOT EXISTS ai_providers (id SERIAL PRIMARY KEY, name VARCHAR(100), base_url TEXT, api_key TEXT, model_name TEXT, is_active BOOLEAN DEFAULT TRUE);`);
-        await query(`
-            INSERT INTO ai_providers (name, base_url, api_key, model_name, is_active) 
-            VALUES ($1, $2, $3, $4, $5) 
-            ON CONFLICT DO NOTHING
-        `, ['Google Gemini', 'https://generativelanguage.googleapis.com/v1beta/models', process.env.GEMINI_API_KEY || '', 'gemini-1.5-flash', true]);
-        await query(`CREATE TABLE IF NOT EXISTS ai_fetch_logs (id SERIAL PRIMARY KEY, fetch_type VARCHAR(100), reference_id INTEGER, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);`);
-        await query(`CREATE TABLE IF NOT EXISTS ads_settings (id SERIAL PRIMARY KEY, location VARCHAR(50), script_content TEXT, is_active BOOLEAN DEFAULT TRUE);`);
-
-        // NEW: Admin Dashboard Tables
-        await query(`CREATE TABLE IF NOT EXISTS legal_pages (id SERIAL PRIMARY KEY, slug VARCHAR(50) UNIQUE NOT NULL, title VARCHAR(200) NOT NULL, content TEXT, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);`);
-        const legals = ['about-us', 'contact-us', 'privacy-policy', 'terms-conditions', 'refund-policy'];
-        for (const slug of legals) {
-            await query(`INSERT INTO legal_pages (slug, title, content) VALUES ($1, $2, $3) ON CONFLICT (slug) DO NOTHING;`, [slug, slug.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' '), 'Content coming soon...']);
+        // Free Limit Control Table (Requirement 4)
+        await query(`CREATE TABLE IF NOT EXISTS free_limit_settings (
+            id SERIAL PRIMARY KEY,
+            key VARCHAR(50) UNIQUE NOT NULL,
+            value TEXT NOT NULL,
+            description TEXT
+        );`);
+        const limitDefaults = {
+            'FREE_SESSIONS_COUNT': '2',
+            'FREE_SESSION_MCQS': '10',
+            'FREE_SESSION_MINUTES': '15',
+            'POPUP_HEADING': 'Free Limit Reached!',
+            'POPUP_TEXT': 'Master your exams with Prime. Get unlimited practice now!',
+            'RENEWAL_WINDOW_HOURS': '24'
+        };
+        for (const [key, value] of Object.entries(limitDefaults)) {
+            await query(`INSERT INTO free_limit_settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING;`, [key, value]);
         }
 
-        await query(`CREATE TABLE IF NOT EXISTS payment_gateway_settings (id SERIAL PRIMARY KEY, provider VARCHAR(50) UNIQUE NOT NULL, api_key TEXT, api_secret TEXT, is_active BOOLEAN DEFAULT FALSE);`);
+        // AI Provider Enhanced Table (Requirement 7)
+        await query(`CREATE TABLE IF NOT EXISTS ai_providers (
+            id SERIAL PRIMARY KEY, 
+            name VARCHAR(100), 
+            base_url TEXT, 
+            api_key TEXT, 
+            model_name TEXT, 
+            is_active BOOLEAN DEFAULT FALSE
+        );`);
+        // Ensure GEMINI is there but active is managed by admin
+        await query(`INSERT INTO ai_providers (name, base_url, api_key, model_name, is_active) 
+            VALUES ('Google Gemini', 'https://generativelanguage.googleapis.com/v1beta/models', $1, 'gemini-1.5-flash', true) 
+            ON CONFLICT DO NOTHING`, [process.env.GEMINI_API_KEY || '']);
+
+        // Payment Gateway Settings (Requirement 6)
+        await query(`CREATE TABLE IF NOT EXISTS payment_gateway_settings (
+            id SERIAL PRIMARY KEY,
+            provider VARCHAR(50) UNIQUE NOT NULL,
+            api_key TEXT,
+            api_secret TEXT,
+            is_active BOOLEAN DEFAULT FALSE
+        );`);
         await query(`INSERT INTO payment_gateway_settings (provider) VALUES ('razorpay'), ('stripe') ON CONFLICT (provider) DO NOTHING;`);
 
-        await query(`CREATE TABLE IF NOT EXISTS revenue_logs (id SERIAL PRIMARY KEY, user_id INTEGER REFERENCES users(id), amount DECIMAL(10, 2), source VARCHAR(100), created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);`);
+        // Hierarchy Tables - Adding is_approved (Requirements 2, 3, 9)
+        const hierarchyTables = ['boards', 'universities', 'subjects', 'chapters', 'papers_stages', 'degree_types', 'semesters'];
+        for (const table of hierarchyTables) {
+            try {
+                await query(`ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS is_approved BOOLEAN DEFAULT FALSE;`);
+            } catch (e) { }
+        }
 
-        // Extend system_settings with SEO and Site Config
+        // SEO and Site Config (Requirement 8)
         const siteDefaults = {
             'SITE_TITLE': 'ExamRedy - AI MCQ Practice',
-            'SITE_LOGO_URL': '',
-            'HOME_BANNER_TEXT': 'Master Your Exams with AI-Powered MCQ Practice',
-            'SUPPORT_EMAIL': 'support@examredy.in',
-            'WHATSAPP_NUMBER': '',
+            'META_DESCRIPTION': 'Master your exams with AI-powered personalized MCQ sets.',
+            'META_KEYWORDS': 'MCQ, Exam Practice, AI, School, University, India',
             'GOOGLE_ANALYTICS_ID': '',
             'GOOGLE_SEARCH_CONSOLE_CODE': '',
-            'FOOTER_CONTENT': '© 2026 ExamRedy. All rights reserved.',
-            'META_TAGS': 'MCQ, Exam Practice, AI, Study'
+            'FOOTER_TEXT': '© 2026 ExamRedy. All rights reserved.',
+            'SUPPORT_EMAIL': 'support@examredy.in',
+            'WHATSAPP_NUMBER': ''
         };
         for (const [key, value] of Object.entries(siteDefaults)) {
             await query(`INSERT INTO system_settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING;`, [key, value]);

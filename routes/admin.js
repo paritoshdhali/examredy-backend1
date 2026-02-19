@@ -77,14 +77,22 @@ router.get('/users', async (req, res) => {
     res.json(result.rows);
 });
 
-router.put('/users/:id/status', async (req, res) => {
-    await query('UPDATE users SET is_active = $1 WHERE id = $2', [req.body.is_active, req.params.id]);
-    res.json({ message: 'Status updated' });
+router.put('/users/:id/role', async (req, res) => {
+    await query('UPDATE users SET role = $1 WHERE id = $2', [req.body.role, req.params.id]);
+    res.json({ message: 'User role updated' });
 });
 
 router.put('/users/:id/subscription', async (req, res) => {
-    const hours = req.body.action === 'extend' ? 24 : -24;
-    await query('UPDATE users SET premium_expiry = COALESCE(premium_expiry, CURRENT_TIMESTAMP) + $1 * INTERVAL \'1 hour\', is_premium = TRUE WHERE id = $2', [hours, req.params.id]);
+    const { action, hours, expiry } = req.body;
+    if (expiry) {
+        await query('UPDATE users SET premium_expiry = $1, is_premium = $2 WHERE id = $3', [expiry, new Date(expiry) > new Date(), req.params.id]);
+    } else if (action === 'extend' || action === 'reduce') {
+        const interval = `${hours || 24} hours`;
+        const operator = action === 'extend' ? '+' : '-';
+        await query(`UPDATE users SET premium_expiry = COALESCE(premium_expiry, CURRENT_TIMESTAMP) ${operator} $1::interval, is_premium = TRUE WHERE id = $2`, [interval, req.params.id]);
+    } else if (action === 'cancel') {
+        await query('UPDATE users SET is_premium = FALSE, premium_expiry = NULL WHERE id = $1', [req.params.id]);
+    }
     res.json({ message: 'Subscription updated' });
 });
 
@@ -221,27 +229,44 @@ router.get('/mcqs', async (req, res) => {
     res.json(result.rows);
 });
 
-router.put('/mcqs/:id/approve', async (req, res) => {
-    await query('UPDATE mcq_pool SET is_approved = TRUE WHERE id = $1', [req.params.id]);
-    res.json({ message: 'MCQ Approved' });
+// Generic toggle for approval (Requirement 2 & 3)
+router.put('/approve/:table/:id', async (req, res) => {
+    const { table, id } = req.params;
+    const allowedTables = ['boards', 'universities', 'subjects', 'chapters', 'papers_stages', 'degree_types', 'semesters'];
+    if (!allowedTables.includes(table)) return res.status(400).json({ message: 'Invalid table' });
+
+    await query(`UPDATE ${table} SET is_approved = $1 WHERE id = $2`, [req.body.is_approved, id]);
+    res.json({ message: `${table} item ${req.body.is_approved ? 'approved' : 'unapproved'}` });
 });
 
-router.delete('/mcqs/:id', async (req, res) => {
-    await query('DELETE FROM mcq_pool WHERE id = $1', [req.params.id]);
-    res.json({ message: 'MCQ Deleted' });
+router.delete('/:table/:id', async (req, res) => {
+    const { table, id } = req.params;
+    const allowedTables = ['boards', 'universities', 'subjects', 'chapters', 'papers_stages', 'degree_types', 'semesters', 'mcqs'];
+    const actualTable = table === 'mcqs' ? 'mcq_pool' : table;
+    if (!allowedTables.includes(table)) return res.status(400).json({ message: 'Invalid table' });
+
+    await query(`DELETE FROM ${actualTable} WHERE id = $1`, [id]);
+    res.json({ message: 'Item deleted' });
 });
 
 // --- 8. AI MANAGEMENT ---
 
 router.get('/ai-providers', async (req, res) => {
-    const result = await query('SELECT * FROM ai_providers');
+    const result = await query('SELECT * FROM ai_providers ORDER BY id ASC');
     res.json(result.rows);
 });
+
 router.put('/ai-providers/:id', async (req, res) => {
-    const { base_url, api_key, model_name, is_active } = req.body;
+    const { name, base_url, api_key, model_name, is_active } = req.body;
+    await query('UPDATE ai_providers SET name=$1, base_url=$2, api_key=$3, model_name=$4, is_active=$5 WHERE id=$6', [name, base_url, api_key, model_name, is_active, req.params.id]);
+    res.json({ message: 'AI Provider configuration updated' });
+});
+
+router.put('/ai-providers/:id/status', async (req, res) => {
+    const { is_active } = req.body;
     if (is_active) await query('UPDATE ai_providers SET is_active = FALSE');
-    await query('UPDATE ai_providers SET base_url=$1, api_key=$2, model_name=$3, is_active=$4 WHERE id=$5', [base_url, api_key, model_name, is_active, req.params.id]);
-    res.json({ message: 'AI Provider updated' });
+    await query('UPDATE ai_providers SET is_active = $1 WHERE id = $2', [is_active, req.params.id]);
+    res.json({ message: 'AI Provider status toggled' });
 });
 
 // --- 9. SUBSCRIPTIONS & REFERRALS ---
@@ -259,6 +284,11 @@ router.put('/plans/:id', async (req, res) => {
     const { name, duration_hours, price, is_active } = req.body;
     await query('UPDATE subscription_plans SET name=$1, duration_hours=$2, price=$3, is_active=$4 WHERE id=$5', [name, duration_hours, price, is_active, req.params.id]);
     res.json({ message: 'Plan updated' });
+});
+
+router.put('/plans/:id/status', async (req, res) => {
+    await query('UPDATE subscription_plans SET is_active = $1 WHERE id = $2', [req.body.is_active, req.params.id]);
+    res.json({ message: 'Plan status updated' });
 });
 
 router.get('/referrals', async (req, res) => {
@@ -291,13 +321,19 @@ router.get('/payments/transactions', async (req, res) => {
     res.json(result.rows);
 });
 
-// --- 11. SYSTEM SETTINGS (ADS, PAYMENTS, LEGAL, GLOBAL) ---
+// --- 11. SYSTEM SETTINGS (ADS, PAYMENTS, LEGAL, GLOBAL, FREE LIMIT) ---
 
 router.get('/settings', async (req, res) => {
     const sys = await query('SELECT * FROM system_settings');
     const legal = await query('SELECT * FROM legal_pages');
     const pay = await query('SELECT * FROM payment_gateway_settings');
-    res.json({ system: Object.fromEntries(sys.rows.map(r => [r.key, r.value])), legal: legal.rows, payment: pay.rows });
+    const free = await query('SELECT * FROM free_limit_settings');
+    res.json({
+        system: Object.fromEntries(sys.rows.map(r => [r.key, r.value])),
+        legal: legal.rows,
+        payment: pay.rows,
+        freeLimit: Object.fromEntries(free.rows.map(r => [r.key, r.value]))
+    });
 });
 
 router.put('/settings/global', async (req, res) => {
@@ -308,14 +344,14 @@ router.put('/settings/global', async (req, res) => {
 });
 
 router.put('/settings/free-limit', async (req, res) => {
-    const { limit, logic } = req.body;
-    await query('INSERT INTO system_settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = $2', ['FREE_DAILY_LIMIT', String(limit)]);
-    await query('INSERT INTO system_settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = $2', ['FREE_LIMIT_RESET_LOGIC', String(logic)]);
+    for (const [key, value] of Object.entries(req.body.settings)) {
+        await query('INSERT INTO free_limit_settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = $2', [key, String(value)]);
+    }
     res.json({ message: 'Free limit control updated' });
 });
 
-router.put('/settings/legal/:slug', async (req, res) => {
-    await query('UPDATE legal_pages SET title=$1, content=$2, updated_at=CURRENT_TIMESTAMP WHERE slug=$3', [req.body.title, req.body.content, req.params.slug]);
+router.put('/settings/legal/:id', async (req, res) => {
+    await query('UPDATE legal_pages SET content=$1, updated_at=CURRENT_TIMESTAMP WHERE id=$2', [req.body.content, req.params.id]);
     res.json({ message: 'Legal page updated' });
 });
 
@@ -348,9 +384,20 @@ router.put('/settings/seo', async (req, res) => {
     res.json({ message: 'SEO settings updated' });
 });
 
-router.put('/settings/payments', async (req, res) => {
-    const { provider, api_key, api_secret, is_active } = req.body;
-    await query('INSERT INTO payment_gateway_settings (provider, api_key, api_secret, is_active) VALUES ($1,$2,$3,$4) ON CONFLICT (provider) DO UPDATE SET api_key=$2, api_secret=$3, is_active=$4', [provider, api_key, api_secret, is_active]);
+router.put('/settings/payments/:provider', async (req, res) => {
+    const { provider } = req.params;
+    const { api_key, api_secret, is_active } = req.body;
+
+    // If updating keys
+    if (api_key !== undefined) {
+        await query('UPDATE payment_gateway_settings SET api_key=$1, api_secret=$2 WHERE provider=$3', [api_key, api_secret, provider]);
+    }
+
+    // If toggling status
+    if (is_active !== undefined) {
+        await query('UPDATE payment_gateway_settings SET is_active=$1 WHERE provider=$2', [is_active, provider]);
+    }
+
     res.json({ message: 'Payment gateway settings updated' });
 });
 
