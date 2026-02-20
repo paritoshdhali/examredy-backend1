@@ -145,12 +145,18 @@ router.get('/boards', async (req, res) => {
     res.json(result.rows);
 });
 router.post('/boards', async (req, res) => {
-    await query('INSERT INTO boards (name, state_id, logo_url) VALUES ($1, $2, $3)', [req.body.name, req.body.state_id, req.body.logo_url]);
-    res.json({ message: 'Board added' });
+    try {
+        await query('INSERT INTO boards (name, state_id, logo_url) VALUES ($1, $2, $3)', [req.body.name, req.body.state_id, req.body.logo_url]);
+        const updated = await query('SELECT b.*, s.name as state_name FROM boards b LEFT JOIN states s ON b.state_id = s.id ORDER BY b.name ASC');
+        res.json({ success: true, updatedData: updated.rows });
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
 });
 router.put('/boards/:id', async (req, res) => {
-    await query('UPDATE boards SET name=$1, state_id=$2, logo_url=$3, is_active=$4 WHERE id=$5', [req.body.name, req.body.state_id, req.body.logo_url, req.body.is_active, req.params.id]);
-    res.json({ message: 'Board updated' });
+    try {
+        await query('UPDATE boards SET name=$1, state_id=$2, logo_url=$3, is_active=$4 WHERE id=$5', [req.body.name, req.body.state_id, req.body.logo_url, req.body.is_active, req.params.id]);
+        const updated = await query('SELECT b.*, s.name as state_name FROM boards b LEFT JOIN states s ON b.state_id = s.id ORDER BY b.name ASC');
+        res.json({ success: true, updatedData: updated.rows });
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
 });
 
 router.get('/classes', async (req, res) => {
@@ -217,29 +223,43 @@ router.get('/subjects', async (req, res) => {
     res.json(result.rows);
 });
 router.post('/subjects', async (req, res) => {
-    const { name, category_id, board_id, university_id, class_id, stream_id, semester_id, degree_type_id, paper_stage_id } = req.body;
-    await query('INSERT INTO subjects (name, category_id, board_id, university_id, class_id, stream_id, semester_id, degree_type_id, paper_stage_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)', [name, category_id, board_id, university_id, class_id, stream_id, semester_id, degree_type_id, paper_stage_id]);
-    res.json({ message: 'Subject added' });
+    try {
+        const { name, category_id, board_id, university_id, class_id, stream_id, semester_id, degree_type_id, paper_stage_id } = req.body;
+        await query('INSERT INTO subjects (name, category_id, board_id, university_id, class_id, stream_id, semester_id, degree_type_id, paper_stage_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)', [name, category_id, board_id, university_id, class_id, stream_id, semester_id, degree_type_id, paper_stage_id]);
+        const updated = await query(`SELECT sub.*, b.name as board_name, c.name as class_name, str.name as stream_name, cat.name as category_name FROM subjects sub LEFT JOIN boards b ON sub.board_id = b.id LEFT JOIN classes c ON sub.class_id = c.id LEFT JOIN streams str ON sub.stream_id = str.id LEFT JOIN categories cat ON sub.category_id = cat.id ORDER BY sub.name ASC`);
+        res.json({ success: true, updatedData: updated.rows });
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
 });
 router.put('/subjects/:id', async (req, res) => {
-    const { name, category_id, board_id, university_id, class_id, stream_id, semester_id, degree_type_id, paper_stage_id, is_active } = req.body;
-    await query(`UPDATE subjects SET name=$1, category_id=$2, board_id=$3, university_id=$4, class_id=$5, stream_id=$6, semester_id=$7, degree_type_id=$8, paper_stage_id=$9, is_active=$10 WHERE id=$11`,
-        [name, category_id, board_id, university_id, class_id, stream_id, semester_id, degree_type_id, paper_stage_id, is_active, req.params.id]);
-    res.json({ message: 'Subject updated' });
+    try {
+        const { name, category_id, board_id, university_id, class_id, stream_id, semester_id, degree_type_id, paper_stage_id, is_active } = req.body;
+        await query(`UPDATE subjects SET name=$1, category_id=$2, board_id=$3, university_id=$4, class_id=$5, stream_id=$6, semester_id=$7, degree_type_id=$8, paper_stage_id=$9, is_active=$10 WHERE id=$11`,
+            [name, category_id, board_id, university_id, class_id, stream_id, semester_id, degree_type_id, paper_stage_id, is_active, req.params.id]);
+        const updated = await query(`SELECT sub.*, b.name as board_name, c.name as class_name, str.name as stream_name, cat.name as category_name FROM subjects sub LEFT JOIN boards b ON sub.board_id = b.id LEFT JOIN classes c ON sub.class_id = c.id LEFT JOIN streams str ON sub.stream_id = str.id LEFT JOIN categories cat ON sub.category_id = cat.id ORDER BY sub.name ASC`);
+        res.json({ success: true, updatedData: updated.rows });
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
 });
 
 router.get('/chapters', async (req, res) => {
-    const result = await query('SELECT ch.*, sub.name as subject_name FROM chapters ch LEFT JOIN subjects sub ON ch.subject_id = sub.id ORDER BY ch.name ASC');
-    res.json(result.rows);
+    try {
+        const result = await query('SELECT ch.*, sub.name as subject_name FROM chapters ch LEFT JOIN subjects sub ON ch.subject_id = sub.id ORDER BY ch.name ASC');
+        res.json(result.rows);
+    } catch (e) { res.status(500).json({ error: e.message }); }
 });
 router.post('/chapters', async (req, res) => {
-    await query('INSERT INTO chapters (name, subject_id, description, sort_order) VALUES ($1, $2, $3, $4)', [req.body.name, req.body.subject_id, req.body.description, req.body.sort_order]);
-    res.json({ message: 'Chapter added' });
+    try {
+        await query('INSERT INTO chapters (name, subject_id, description, sort_order) VALUES ($1, $2, $3, $4)', [req.body.name, req.body.subject_id, req.body.description, req.body.sort_order]);
+        const updated = await query('SELECT ch.*, sub.name as subject_name FROM chapters ch LEFT JOIN subjects sub ON ch.subject_id = sub.id ORDER BY ch.name ASC');
+        res.json({ success: true, updatedData: updated.rows });
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
 });
 router.put('/chapters/:id', async (req, res) => {
-    const { name, subject_id, description, sort_order, is_active } = req.body;
-    await query('UPDATE chapters SET name=$1, subject_id=$2, description=$3, sort_order=$4, is_active=$5 WHERE id=$6', [name, subject_id, description, sort_order, is_active, req.params.id]);
-    res.json({ message: 'Chapter updated' });
+    try {
+        const { name, subject_id, description, sort_order, is_active } = req.body;
+        await query('UPDATE chapters SET name=$1, subject_id=$2, description=$3, sort_order=$4, is_active=$5 WHERE id=$6', [name, subject_id, description, sort_order, is_active, req.params.id]);
+        const updated = await query('SELECT ch.*, sub.name as subject_name FROM chapters ch LEFT JOIN subjects sub ON ch.subject_id = sub.id ORDER BY ch.name ASC');
+        res.json({ success: true, updatedData: updated.rows });
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
 });
 
 // --- 7. MCQ MANAGEMENT ---
@@ -447,88 +467,70 @@ router.put('/settings/payments/:provider', async (req, res) => {
 
 router.post('/ai-fetch/boards', async (req, res) => {
     const { state_id, state_name } = req.body;
-    const client = await pool.connect();
     try {
-        await client.query('BEGIN');
         const { generateSchoolBoards } = require('../services/aiService');
         const boards = await generateSchoolBoards(state_name);
-
         const savedBoards = [];
         for (const board of boards) {
-            const result = await client.query(
+            const result = await query(
                 'INSERT INTO boards (name, state_id, is_approved) VALUES ($1, $2, TRUE) ON CONFLICT (state_id, name) DO NOTHING RETURNING *',
                 [board.name, state_id]
             );
             if (result.rows[0]) savedBoards.push(result.rows[0]);
         }
-        await client.query("INSERT INTO ai_fetch_logs (type, context, status) VALUES ('boards', $1, 'success')", [`State: ${state_name}`]);
-        await client.query('COMMIT');
-        res.json({ message: 'Boards fetched successfully', data: savedBoards });
+        await query("INSERT INTO ai_fetch_logs (type, context, status) VALUES ('boards', $1, 'success')", [`State: ${state_name}`]);
+        const updated = await query('SELECT b.*, s.name as state_name FROM boards b LEFT JOIN states s ON b.state_id = s.id ORDER BY b.name ASC');
+        res.json({ success: true, count: savedBoards.length, updatedData: updated.rows });
     } catch (e) {
-        await client.query('ROLLBACK');
-        await client.query("INSERT INTO ai_fetch_logs (type, context, status, error_message) VALUES ('boards', $1, 'error', $2)", [`State: ${state_name}`, e.message]);
+        try { await query("INSERT INTO ai_fetch_logs (type, context, status, error_message) VALUES ('boards', $1, 'error', $2)", [`State: ${state_name}`, e.message]); } catch (_) { }
         console.error('AI Board Fetch Error:', e);
-        res.status(500).json({ error: e.message });
-    } finally {
-        client.release();
+        res.status(500).json({ success: false, error: e.message });
     }
 });
 
 router.post('/ai-fetch/subjects', async (req, res) => {
     const { board_id, class_id, board_name, class_name, stream_id, stream_name } = req.body;
-    const client = await pool.connect();
     try {
-        await client.query('BEGIN');
         const { generateSchoolSubjects } = require('../services/aiService');
         const subjects = await generateSchoolSubjects(board_name, class_name, stream_name);
-
         const savedSubjects = [];
         for (const sub of subjects) {
-            const result = await client.query(
+            const result = await query(
                 'INSERT INTO subjects (name, category_id, board_id, class_id, stream_id, is_approved) VALUES ($1, 1, $2, $3, $4, TRUE) ON CONFLICT (board_id, class_id, stream_id, name) DO NOTHING RETURNING *',
                 [sub.name, board_id, class_id, stream_id]
             );
             if (result.rows[0]) savedSubjects.push(result.rows[0]);
         }
-        await client.query("INSERT INTO ai_fetch_logs (type, context, status) VALUES ('subjects', $1, 'success')", [`Board: ${board_name}, Class: ${class_name}`]);
-        await client.query('COMMIT');
-        res.json({ message: 'Subjects fetched successfully', data: savedSubjects });
+        await query("INSERT INTO ai_fetch_logs (type, context, status) VALUES ('subjects', $1, 'success')", [`Board: ${board_name}, Class: ${class_name}`]);
+        const updated = await query(`SELECT sub.*, b.name as board_name, c.name as class_name, str.name as stream_name, cat.name as category_name FROM subjects sub LEFT JOIN boards b ON sub.board_id = b.id LEFT JOIN classes c ON sub.class_id = c.id LEFT JOIN streams str ON sub.stream_id = str.id LEFT JOIN categories cat ON sub.category_id = cat.id ORDER BY sub.name ASC`);
+        res.json({ success: true, count: savedSubjects.length, updatedData: updated.rows });
     } catch (e) {
-        await client.query('ROLLBACK');
-        await client.query("INSERT INTO ai_fetch_logs (type, context, status, error_message) VALUES ('subjects', $1, 'error', $2)", [`Board: ${board_name}, Class: ${class_name}`, e.message]);
+        try { await query("INSERT INTO ai_fetch_logs (type, context, status, error_message) VALUES ('subjects', $1, 'error', $2)", [`Board: ${board_name}, Class: ${class_name}`, e.message]); } catch (_) { }
         console.error('AI Subject Fetch Error:', e);
-        res.status(500).json({ error: e.message });
-    } finally {
-        client.release();
+        res.status(500).json({ success: false, error: e.message });
     }
 });
 
 router.post('/ai-fetch/chapters', async (req, res) => {
     const { subject_id, subject_name, board_name, class_name } = req.body;
-    const client = await pool.connect();
     try {
-        await client.query('BEGIN');
         const { generateSchoolChapters } = require('../services/aiService');
         const chapters = await generateSchoolChapters(subject_name, board_name, class_name);
-
         const savedChapters = [];
         for (const chap of chapters) {
-            const result = await client.query(
+            const result = await query(
                 'INSERT INTO chapters (name, subject_id, is_active) VALUES ($1, $2, TRUE) ON CONFLICT (subject_id, name) DO NOTHING RETURNING *',
                 [chap.name, subject_id]
             );
             if (result.rows[0]) savedChapters.push(result.rows[0]);
         }
-        await client.query("INSERT INTO ai_fetch_logs (type, context, status) VALUES ('chapters', $1, 'success')", [`Subject: ${subject_name}, Class: ${class_name}`]);
-        await client.query('COMMIT');
-        res.json({ message: 'Chapters fetched successfully', data: savedChapters });
+        await query("INSERT INTO ai_fetch_logs (type, context, status) VALUES ('chapters', $1, 'success')", [`Subject: ${subject_name}, Class: ${class_name}`]);
+        const updated = await query('SELECT ch.*, sub.name as subject_name FROM chapters ch LEFT JOIN subjects sub ON ch.subject_id = sub.id ORDER BY ch.name ASC');
+        res.json({ success: true, count: savedChapters.length, updatedData: updated.rows });
     } catch (e) {
-        await client.query('ROLLBACK');
-        await client.query("INSERT INTO ai_fetch_logs (type, context, status, error_message) VALUES ('chapters', $1, 'error', $2)", [`Subject: ${subject_name}, Class: ${class_name}`, e.message]);
+        try { await query("INSERT INTO ai_fetch_logs (type, context, status, error_message) VALUES ('chapters', $1, 'error', $2)", [`Subject: ${subject_name}, Class: ${class_name}`, e.message]); } catch (_) { }
         console.error('AI Chapter Fetch Error:', e);
-        res.status(500).json({ error: e.message });
-    } finally {
-        client.release();
+        res.status(500).json({ success: false, error: e.message });
     }
 });
 
