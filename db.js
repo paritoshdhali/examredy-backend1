@@ -331,6 +331,7 @@ const initDB = async () => {
             try {
                 await query(`ALTER TABLE ${table} ALTER COLUMN name TYPE VARCHAR(500);`);
                 await query(`ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS is_approved BOOLEAN DEFAULT FALSE;`);
+                await query(`ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;`);
             } catch (e) { }
         }
 
