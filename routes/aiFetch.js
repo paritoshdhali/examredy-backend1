@@ -75,9 +75,9 @@ router.post('/boards', verifyToken, admin, async (req, res) => {
             message += ` ${existingCount} Boards already existed.`;
         }
         if (saved.length === 0 && existingCount === 0) {
-            message = `Boards fetched but none were saved (might be filtered or AI returned no valid data).`;
+            message = `AI returned no valid data or all items were filtered. (Raw: ${JSON.stringify(boards?.slice(0, 2))})`;
         }
-        res.json({ message, data: saved });
+        res.json({ message, data: saved, rawFetch: boards });
     } catch (error) {
         console.error('AI Fetch Boards Error:', error);
         res.status(500).json({ message: error.message || 'Server error during board fetch' });
@@ -114,9 +114,9 @@ router.post('/universities', verifyToken, admin, async (req, res) => {
             message += ` ${existingCount} Universities already existed.`;
         }
         if (saved.length === 0 && existingCount === 0) {
-            message = `Universities fetched but none were saved (might be filtered or AI returned no valid data).`;
+            message = `AI returned no valid Universities or duplicates found. (Raw: ${JSON.stringify(universities?.slice(0, 2))})`;
         }
-        res.json({ message, data: saved });
+        res.json({ message, data: saved, rawFetch: universities });
     } catch (error) {
         console.error('AI Fetch Universities Error:', error);
         res.status(500).json({ message: error.message || 'Server error during university fetch' });
@@ -151,9 +151,9 @@ router.post('/papers', verifyToken, admin, async (req, res) => {
             message += ` ${existingCount} Papers/Stages already existed.`;
         }
         if (saved.length === 0 && existingCount === 0) {
-            message = `Papers/Stages fetched but none were saved (might be filtered or AI returned no valid data).`;
+            message = `AI returned no valid Papers or duplicates found. (Raw: ${JSON.stringify(papers?.slice(0, 2))})`;
         }
-        res.json({ message, data: saved });
+        res.json({ message, data: saved, rawFetch: papers });
     } catch (error) {
         console.error('AI Fetch Papers Error:', error);
         res.status(500).json({ message: error.message || 'Server error during papers fetch' });
@@ -206,9 +206,9 @@ router.post('/subjects', verifyToken, admin, async (req, res) => {
             message += ` ${existingCount} Subjects already existed.`;
         }
         if (saved.length === 0 && existingCount === 0) {
-            message = `Subjects fetched but none were saved (might be filtered or AI returned no valid data).`;
+            message = `AI returned no valid Subjects or duplicates found. (Raw: ${JSON.stringify(subjects?.slice(0, 2))})`;
         }
-        res.json({ message, data: saved });
+        res.json({ message, data: saved, rawFetch: subjects });
     } catch (error) {
         console.error('AI Fetch Subjects Error:', error);
         res.status(500).json({ message: error.message || 'Server error during subject fetch' });
@@ -251,9 +251,9 @@ router.post('/chapters', verifyToken, admin, async (req, res) => {
             message += ` ${existingCount} Chapters already existed.`;
         }
         if (saved.length === 0 && existingCount === 0) {
-            message = `Chapters fetched but none were saved (might be filtered or AI returned no valid data).`;
+            message = `AI returned no valid Chapters or duplicates found. (Raw: ${JSON.stringify(chapters?.slice(0, 2))})`;
         }
-        res.json({ message, data: saved });
+        res.json({ message, data: saved, rawFetch: chapters });
     } catch (error) {
         console.error('AI Fetch Chapters Error:', error);
         res.status(500).json({ message: error.message || 'Server error during chapter fetch' });

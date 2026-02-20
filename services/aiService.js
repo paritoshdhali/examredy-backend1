@@ -105,7 +105,15 @@ const fetchAIStructure = async (type, context) => {
 
         const cleanText = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
         const parsedData = JSON.parse(cleanText);
-        const data = Array.isArray(parsedData) ? parsedData : (parsedData.items || parsedData.list || []);
+
+        let data = [];
+        if (Array.isArray(parsedData)) {
+            data = parsedData;
+        } else if (typeof parsedData === 'object' && parsedData !== null) {
+            // Smarter check: find the first array in the object (e.g., .boards, .subjects, .data)
+            const firstArray = Object.values(parsedData).find(val => Array.isArray(val));
+            data = firstArray || (parsedData.items || parsedData.list || []);
+        }
 
         // Always normalize to array of objects with 'name' property
         return data.map(item => {
