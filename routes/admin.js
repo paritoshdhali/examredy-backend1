@@ -306,6 +306,40 @@ router.delete('/:table/:id', async (req, res) => {
 
 // --- 8. AI MANAGEMENT ---
 
+router.post('/ai-providers/fetch-models', async (req, res) => {
+    const { base_url, api_key } = req.body;
+    if (!base_url) return res.status(400).json({ error: 'base_url is required', models: [] });
+    const axios = require('axios');
+    const cleanUrl = base_url.replace(/\/$/, '');
+
+    try {
+        // Try OpenAI-compatible /models endpoint (OpenAI, OpenRouter, Groq, Together, etc.)
+        const response = await axios.get(`${cleanUrl}/models`, {
+            headers: { 'Authorization': `Bearer ${api_key}`, 'HTTP-Referer': 'https://examredy.in' },
+            timeout: 12000
+        });
+        let models = [];
+        if (response.data?.data && Array.isArray(response.data.data)) {
+            models = response.data.data.map(m => m.id).filter(Boolean).sort();
+        } else if (response.data?.models && Array.isArray(response.data.models)) {
+            models = response.data.models.map(m => (m.name || m.id || '').replace('models/', '')).filter(Boolean).sort();
+        }
+        return res.json({ success: true, models });
+    } catch (err) {
+        // Fallback: Gemini-style with api_key as query param
+        try {
+            const geminiRes = await axios.get(`${cleanUrl}/models?key=${api_key}`, { timeout: 10000 });
+            const models = (geminiRes.data?.models || [])
+                .map(m => (m.name || '').replace('models/', ''))
+                .filter(m => m && !m.includes('embedding') && !m.includes('aqa'))
+                .sort();
+            return res.json({ success: true, models });
+        } catch (e) {
+            return res.status(400).json({ error: `Cannot reach provider: ${err.message}`, models: [] });
+        }
+    }
+});
+
 router.get('/ai-providers', async (req, res) => {
     const result = await query('SELECT * FROM ai_providers ORDER BY id ASC');
     res.json(result.rows);
