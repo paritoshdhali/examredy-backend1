@@ -453,7 +453,7 @@ const initDB = async () => {
         console.log('Running Data Hygiene: Purging Sample/Dummy records...');
         await query(`DELETE FROM chapters WHERE name ILIKE '%SAMPLE%' OR name ILIKE '%TEST%' OR name ILIKE '%DUMMY%';`);
         await query(`DELETE FROM subjects WHERE name ILIKE '%SAMPLE%' OR name ILIKE '%TEST%' OR name ILIKE '%DUMMY%';`);
-        await query(`DELETE FROM boards WHERE name ILIKE '%SAMPLE%' OR name ILIKE '%TEST%' OR name ILIKE '%DUMMY%';`);
+        await query(`DELETE FROM boards WHERE name ILIKE '%SAMPLE%' OR name ILIKE '%TEST%' OR name ILIKE '%DUMMY%' OR name ILIKE 'DEBUG_%' OR name ILIKE '%FIX-V1%' OR name ILIKE '%REQUEST FAILED%';`);
         console.log('✅ Data Hygiene Complete: Only Real Data remains.');
 
         // Run Preload after DB init
