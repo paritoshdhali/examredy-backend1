@@ -180,6 +180,7 @@ const initDB = async () => {
         );`);
 
         await query(`CREATE TABLE IF NOT EXISTS universities (id SERIAL PRIMARY KEY, name VARCHAR(200) NOT NULL, state_id INTEGER REFERENCES states(id), logo_url TEXT, is_active BOOLEAN DEFAULT TRUE);`);
+        try { await query(`ALTER TABLE universities ADD CONSTRAINT unique_university_state UNIQUE (state_id, name);`); } catch (e) { }
         try { await query(`ALTER TABLE universities ADD COLUMN IF NOT EXISTS logo_url TEXT;`); } catch (e) { }
 
         await query(`CREATE TABLE IF NOT EXISTS degree_types (id SERIAL PRIMARY KEY, name VARCHAR(100) NOT NULL, is_active BOOLEAN DEFAULT TRUE);`);
@@ -191,6 +192,7 @@ const initDB = async () => {
         await query(`CREATE TABLE IF NOT EXISTS semesters (id SERIAL PRIMARY KEY, name VARCHAR(50) NOT NULL, university_id INTEGER REFERENCES universities(id), is_active BOOLEAN DEFAULT TRUE);`);
 
         await query(`CREATE TABLE IF NOT EXISTS papers_stages (id SERIAL PRIMARY KEY, name VARCHAR(100) NOT NULL, category_id INTEGER REFERENCES categories(id), is_active BOOLEAN DEFAULT TRUE);`);
+        try { await query(`ALTER TABLE papers_stages ADD CONSTRAINT unique_paper_category UNIQUE (category_id, name);`); } catch (e) { }
 
         // Auto-create Classes
         const defaultClasses = ['Class 1', 'Class 2', 'Class 3', 'Class 4', 'Class 5', 'Class 6', 'Class 7', 'Class 8', 'Class 9', 'Class 10', 'Class 11', 'Class 12'];
@@ -294,20 +296,24 @@ const initDB = async () => {
         // AI Provider Enhanced Table (Requirement 7)
         await query(`CREATE TABLE IF NOT EXISTS ai_providers (
             id SERIAL PRIMARY KEY, 
-            name VARCHAR(100) UNIQUE, 
+            name VARCHAR(100), 
             base_url TEXT, 
             api_key TEXT, 
             model_name TEXT, 
             is_active BOOLEAN DEFAULT FALSE
         );`);
-        try { await query(`ALTER TABLE ai_providers ADD CONSTRAINT unique_ai_provider_name UNIQUE (name);`); } catch (e) { }
+        try {
+            // Sanitize duplicates before adding constraint
+            await query(`DELETE FROM ai_providers a USING ai_providers b WHERE a.id < b.id AND a.name = b.name;`);
+            await query(`ALTER TABLE ai_providers ADD CONSTRAINT unique_ai_provider_name UNIQUE (name);`);
+        } catch (e) { }
 
         // Ensure GEMINI is there but active is managed by admin
         const geminiKey = process.env.AI_API_KEY || process.env.GEMINI_API_KEY || '';
         console.log(`AI Provider Sync: Key detected? ${!!geminiKey} (Source: ${process.env.AI_API_KEY ? 'AI_API_KEY' : (process.env.GEMINI_API_KEY ? 'GEMINI_API_KEY' : 'NONE')})`);
         await query(`INSERT INTO ai_providers (name, base_url, api_key, model_name, is_active) 
             VALUES ('Google Gemini', 'https://generativelanguage.googleapis.com/v1beta/models', $1, 'gemini-1.5-flash', true) 
-            ON CONFLICT (name) DO UPDATE SET api_key = $1 WHERE ai_providers.api_key IS NULL OR ai_providers.api_key = '';`, [geminiKey]);
+            ON CONFLICT (name) DO UPDATE SET api_key = $1;`, [geminiKey]);
 
         // Payment Gateway Settings (Requirement 6)
         await query(`CREATE TABLE IF NOT EXISTS payment_gateway_settings (

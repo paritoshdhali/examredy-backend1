@@ -36,6 +36,21 @@ router.get('/logs', verifyToken, admin, async (req, res) => {
     }
 });
 
+// @route   GET /api/ai-fetch/diag
+// @desc    AI Provider Diagnostic (Admin)
+router.get('/diag', verifyToken, admin, async (req, res) => {
+    try {
+        const result = await query('SELECT name, model_name, is_active, (api_key IS NOT NULL AND api_key != \'\') as has_key FROM ai_providers');
+        res.json({
+            providers: result.rows,
+            env_ai_key_set: !!process.env.AI_API_KEY,
+            env_gemini_key_set: !!process.env.GEMINI_API_KEY
+        });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+});
+
 const { generateMCQInitial, fetchAIStructure } = require('../services/aiService');
 
 // @route   POST /api/ai-fetch/boards
@@ -97,7 +112,7 @@ router.post('/universities', verifyToken, admin, async (req, res) => {
             for (const item of universities) {
                 const name = item.name;
                 if (name.toLowerCase().includes('university ') || name.toLowerCase().includes('placeholder')) continue;
-                const result = await query('INSERT INTO universities (name, state_id, is_active) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING RETURNING *', [name, state_id, true]);
+                const result = await query('INSERT INTO universities (name, state_id, is_active) VALUES ($1, $2, $3) ON CONFLICT (state_id, name) DO NOTHING RETURNING *', [name, state_id, true]);
                 if (result.rows[0]) {
                     saved.push(result.rows[0]);
                 } else {
@@ -134,7 +149,7 @@ router.post('/papers', verifyToken, admin, async (req, res) => {
         try {
             for (const item of papers) {
                 const name = item.name;
-                const result = await query('INSERT INTO papers_stages (name, category_id, is_active) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING RETURNING *', [name, category_id, true]);
+                const result = await query('INSERT INTO papers_stages (name, category_id, is_active) VALUES ($1, $2, $3) ON CONFLICT (category_id, name) DO NOTHING RETURNING *', [name, category_id, true]);
                 if (result.rows[0]) {
                     saved.push(result.rows[0]);
                 } else {
