@@ -143,14 +143,17 @@ const generateSchoolBoards = async (stateName) => {
 };
 
 const generateSchoolSubjects = async (boardName, className, streamName) => {
-    const prompt = `Board: ${boardName}, Class: ${className}, Stream: ${streamName || 'General'}. List REAL syllabus subjects. No placeholders.`;
+    const prompt = `Board: ${boardName}, Class: ${className}, Stream: ${streamName || 'General'}, India. 
+    List the exactly 10 REAL official compulsory subjects found in the authorized syllabus (e.g., NCERT, State Board syllabus). 
+    Exclude elective or minor subjects if possible. No generic placeholders.`;
     return await fetchAIStructure('subjects', prompt);
 };
 
 const generateSchoolChapters = async (subjectName, boardName, className) => {
-    const prompt = `Return a list of OFFICIALLY CORRECT chapters for the subject "${subjectName}" in ${className} of the ${boardName} board in India.
+    const prompt = `Return a list of OFFICIALLY CORRECT textbook chapters for the subject "${subjectName}" in ${className} of the ${boardName} board in India.
+    - Use real, specific chapter names from the authorized textbook syllabus for the current academic year.
     - DO NOT use placeholders like "Chapter 1".
-    - Use real, specific chapter names from the authorized textbook syllabus.
+    - Focus on core curriculum content.
     Return only a JSON array of objects with a "name" key.
     Example: [{"name": "Trigonometry"}, {"name": "Calculus"}]
     Return ONLY JSON. STRICTLY NO MARKDOWN.`;
