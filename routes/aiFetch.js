@@ -87,9 +87,11 @@ router.post('/boards', verifyToken, admin, async (req, res) => {
 
         let message = `${saved.length} Boards fetched and saved.`;
         if (existingCount > 0) message += ` ${existingCount} already existed.`;
-        if (saved.length === 0 && existingCount === 0) message = `AI returned no valid data.`;
         // Fetch updated full boards list
         const updated = await query('SELECT b.*, s.name as state_name FROM boards b LEFT JOIN states s ON b.state_id = s.id ORDER BY b.name ASC');
+        if (saved.length === 0 && existingCount === 0) {
+            return res.status(422).json({ success: false, message: 'AI returned no valid boards. Check Neural Hub AI provider settings.' });
+        }
         res.json({ success: true, count: saved.length, message, updatedData: updated.rows });
     } catch (error) {
         console.error('AI Fetch Boards Error:', error);
@@ -124,8 +126,10 @@ router.post('/universities', verifyToken, admin, async (req, res) => {
         }
         let message = `${saved.length} Universities fetched and saved.`;
         if (existingCount > 0) message += ` ${existingCount} already existed.`;
-        if (saved.length === 0 && existingCount === 0) message = `AI returned no valid Universities.`;
         const updUni = await query('SELECT u.*, s.name as state_name FROM universities u LEFT JOIN states s ON u.state_id = s.id ORDER BY u.name ASC');
+        if (saved.length === 0 && existingCount === 0) {
+            return res.status(422).json({ success: false, message: 'AI returned no valid universities. Check Neural Hub AI provider settings.' });
+        }
         res.json({ success: true, count: saved.length, message, updatedData: updUni.rows });
     } catch (error) {
         console.error('AI Fetch Universities Error:', error);
@@ -158,8 +162,10 @@ router.post('/papers', verifyToken, admin, async (req, res) => {
         }
         let message = `${saved.length} Papers/Stages fetched and saved.`;
         if (existingCount > 0) message += ` ${existingCount} already existed.`;
-        if (saved.length === 0 && existingCount === 0) message = `AI returned no valid Papers.`;
         const updPap = await query('SELECT p.*, c.name as category_name FROM papers_stages p LEFT JOIN categories c ON p.category_id = c.id ORDER BY p.name ASC');
+        if (saved.length === 0 && existingCount === 0) {
+            return res.status(422).json({ success: false, message: 'AI returned no valid papers. Check Neural Hub AI provider settings.' });
+        }
         res.json({ success: true, count: saved.length, message, updatedData: updPap.rows });
     } catch (error) {
         console.error('AI Fetch Papers Error:', error);
@@ -210,8 +216,10 @@ router.post('/subjects', verifyToken, admin, async (req, res) => {
         }
         let message = `${saved.length} Subjects fetched and saved.`;
         if (existingCount > 0) message += ` ${existingCount} already existed.`;
-        if (saved.length === 0 && existingCount === 0) message = `AI returned no valid Subjects.`;
         const updSub = await query(`SELECT sub.*, b.name as board_name, c.name as class_name, str.name as stream_name, cat.name as category_name FROM subjects sub LEFT JOIN boards b ON sub.board_id = b.id LEFT JOIN classes c ON sub.class_id = c.id LEFT JOIN streams str ON sub.stream_id = str.id LEFT JOIN categories cat ON sub.category_id = cat.id ORDER BY sub.name ASC`);
+        if (saved.length === 0 && existingCount === 0) {
+            return res.status(422).json({ success: false, message: 'AI returned no valid subjects. Check Neural Hub AI provider settings.' });
+        }
         res.json({ success: true, count: saved.length, message, updatedData: updSub.rows });
     } catch (error) {
         console.error('AI Fetch Subjects Error:', error);
@@ -252,8 +260,10 @@ router.post('/chapters', verifyToken, admin, async (req, res) => {
 
         let message = `${saved.length} Chapters fetched and saved.`;
         if (existingCount > 0) message += ` ${existingCount} already existed.`;
-        if (saved.length === 0 && existingCount === 0) message = `AI returned no valid Chapters.`;
         const updCh = await query('SELECT ch.*, sub.name as subject_name FROM chapters ch LEFT JOIN subjects sub ON ch.subject_id = sub.id ORDER BY ch.name ASC');
+        if (saved.length === 0 && existingCount === 0) {
+            return res.status(422).json({ success: false, message: 'AI returned no valid chapters. Check Neural Hub AI provider settings.' });
+        }
         res.json({ success: true, count: saved.length, message, updatedData: updCh.rows });
     } catch (error) {
         console.error('AI Fetch Chapters Error:', error);

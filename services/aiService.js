@@ -92,74 +92,119 @@ const fallbackMock = (topic, count, errorMsg = '') => {
 };
 
 const fetchAIStructure = async (type, context) => {
-    try {
-        const providerRes = await query('SELECT * FROM ai_providers WHERE is_active = TRUE LIMIT 1');
-        if (providerRes.rows.length === 0 || !providerRes.rows[0].api_key) throw new Error('AI Provider not configured');
+    const providerRes = await query('SELECT * FROM ai_providers WHERE is_active = TRUE LIMIT 1');
+    if (providerRes.rows.length === 0 || !providerRes.rows[0].api_key) {
+        throw new Error('No active AI provider found. Please configure one in Neural Hub.');
+    }
 
-        const provider = providerRes.rows[0];
-        const { api_key, model_name, base_url } = provider;
+    const provider = providerRes.rows[0];
+    const { api_key, model_name, base_url } = provider;
 
-        // --- ROBUST OPENROUTER DETECTION ---
-        const isORKey = api_key?.startsWith('sk-or-');
-        let effectiveBaseUrl = base_url;
-        let isOpenAI = base_url.includes('openrouter.ai') || base_url.includes('openai.com') || base_url.includes('api.openai.com') || isORKey;
+    // Detect key type: OpenRouter (sk-or-), OpenAI (sk-), Gemini (AIza)
+    const isORKey = api_key?.startsWith('sk-or-');
+    const isGeminiKey = api_key?.startsWith('AIza');
+    let effectiveBaseUrl = base_url || '';
+    let isOpenAI = isORKey || api_key?.startsWith('sk-') ||
+        effectiveBaseUrl.includes('openrouter.ai') ||
+        effectiveBaseUrl.includes('openai.com');
 
-        if (isORKey && !base_url.includes('openrouter.ai')) {
-            effectiveBaseUrl = 'https://openrouter.ai/api/v1';
+    // Force correct endpoints based on key type
+    if (isORKey && !effectiveBaseUrl.includes('openrouter.ai')) {
+        effectiveBaseUrl = 'https://openrouter.ai/api/v1';
+        isOpenAI = true;
+    }
+    if (isGeminiKey) {
+        isOpenAI = false;
+        if (!effectiveBaseUrl.includes('googleapis.com')) {
+            effectiveBaseUrl = 'https://generativelanguage.googleapis.com/v1beta/models';
         }
+    }
 
-        const prompt = `Generate a list of exactly 10 ${type} for the following context: "${context}". 
-        Return the result as a valid JSON array of strings. 
-        Example: ["Item 1", "Item 2", ...]
-        Return ONLY valid JSON. NO MARKDOWN. NO EXPLANATIONS.`;
+    const prompt = `List exactly 10 ${type} for: "${context}".
+Return ONLY a valid JSON array of objects with a "name" key.
+Example: [{"name":"Item 1"},{"name":"Item 2"}]
+Do NOT include markdown, code blocks, or any explanation. Return ONLY the JSON array.`;
 
-        let response;
+    let response;
+    try {
         if (isOpenAI) {
             const endpoint = `${effectiveBaseUrl}/chat/completions`.replace(/([^:])\/\//g, '$1/');
-            console.log(`[AI-STRUCT] Endpoint: ${endpoint}, Model: ${model_name}`);
+            console.log(`[AI-STRUCT] OpenAI Endpoint: ${endpoint}, Model: ${model_name}`);
             response = await axios.post(endpoint, {
                 model: model_name,
-                messages: [{ role: 'user', content: prompt }]
+                messages: [{ role: 'user', content: prompt }],
+                temperature: 0.3,
             }, {
                 headers: {
                     'Authorization': `Bearer ${api_key}`,
                     'Content-Type': 'application/json',
                     'HTTP-Referer': 'https://examredy.in',
                     'X-Title': 'ExamRedy Admin'
-                }
+                },
+                timeout: 30000
             });
         } else {
-            const endpoint = `${effectiveBaseUrl}/${model_name}:generateContent?key=${api_key}`;
-            console.log(`[AI-STRUCT] Gemini Endpoint: ${endpoint.substring(0, 45)}...`);
+            // Gemini endpoint: base_url/model_name:generateContent?key=...
+            const geminiModel = model_name || 'gemini-1.5-flash';
+            const geminiBase = effectiveBaseUrl.replace(/\/$/, '');
+            const endpoint = `${geminiBase}/${geminiModel}:generateContent?key=${api_key}`;
+            console.log(`[AI-STRUCT] Gemini Endpoint: ${endpoint.substring(0, 60)}...`);
             response = await axios.post(endpoint, {
                 contents: [{ parts: [{ text: prompt }] }],
-                generationConfig: { response_mime_type: "application/json" }
-            });
+                generationConfig: { response_mime_type: 'application/json', temperature: 0.3 }
+            }, { timeout: 30000 });
         }
-
-        const responseText = isOpenAI
-            ? response.data?.choices?.[0]?.message?.content
-            : response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
-
-        if (!responseText) throw new Error('Empty AI response');
-
-        const cleanText = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
-        const parsedData = JSON.parse(cleanText);
-
-        let data = Array.isArray(parsedData) ? parsedData : (Object.values(parsedData).find(val => Array.isArray(val)) || parsedData.items || []);
-
-        return data.map(item => {
-            if (typeof item === 'string') return { name: item };
-            if (typeof item === 'object' && item !== null) {
-                return { name: item.name || item.title || item.label || Object.values(item)[0] };
-            }
-            return { name: String(item) };
-        });
-    } catch (error) {
-        const errorDetail = error.response?.data?.error?.message || error.response?.data?.message || (typeof error.response?.data === 'string' ? error.response.data : null) || error.message;
-        console.error('AI Structure Fetch Error:', JSON.stringify(error.response?.data || error.message));
-        return fallbackMockStructure(type, context, `[FIX-V1] ${errorDetail}`);
+    } catch (httpError) {
+        const status = httpError.response?.status;
+        const errMsg = httpError.response?.data?.error?.message ||
+            httpError.response?.data?.message ||
+            httpError.message;
+        const hint = status === 401 ? ' (Invalid API Key)' :
+            status === 403 ? ' (Access Denied / Wrong model)' :
+                status === 429 ? ' (Rate limit exceeded)' :
+                    status === 404 ? ` (Model "${model_name}" not found)` : '';
+        throw new Error(`AI API Error ${status || ''}: ${errMsg}${hint}`);
     }
+
+    const responseText = isOpenAI
+        ? response.data?.choices?.[0]?.message?.content
+        : response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+
+    if (!responseText) throw new Error('AI returned empty response. Check model configuration.');
+
+    // Clean and parse
+    const cleanText = responseText.replace(/```json/gi, '').replace(/```/g, '').trim();
+    let parsedData;
+    try {
+        parsedData = JSON.parse(cleanText);
+    } catch {
+        // Try extracting JSON from within the text
+        const match = cleanText.match(/(\[.*\]|\{.*\})/s);
+        if (match) {
+            parsedData = JSON.parse(match[1]);
+        } else {
+            throw new Error('AI response was not valid JSON. Try a different model.');
+        }
+    }
+
+    let data = Array.isArray(parsedData)
+        ? parsedData
+        : (Object.values(parsedData).find(val => Array.isArray(val)) || []);
+
+    const mapped = data.map(item => {
+        if (typeof item === 'string') return { name: item.trim() };
+        if (typeof item === 'object' && item !== null) {
+            const name = item.name || item.title || item.label || Object.values(item).find(v => typeof v === 'string');
+            return { name: (name || '').trim() };
+        }
+        return { name: String(item).trim() };
+    }).filter(item => item.name && item.name.length > 0);
+
+    if (mapped.length === 0) {
+        throw new Error('AI returned data but no valid items could be extracted.');
+    }
+
+    return mapped;
 };
 
 
