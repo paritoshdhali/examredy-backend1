@@ -333,10 +333,54 @@ router.get('/mcqs', async (req, res) => {
 });
 
 // MCQ Approve
+router.get('/mcqs/stats', async (req, res) => {
+    try {
+        const total = await query('SELECT COUNT(*) FROM mcq_pool');
+        const pending = await query('SELECT COUNT(*) FROM mcq_pool WHERE is_approved = FALSE');
+        const approved = await query('SELECT COUNT(*) FROM mcq_pool WHERE is_approved = TRUE');
+        res.json({
+            total: parseInt(total.rows[0].count),
+            pending: parseInt(pending.rows[0].count),
+            approved: parseInt(approved.rows[0].count)
+        });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 router.put('/mcqs/:id/approve', async (req, res) => {
     try {
         await query('UPDATE mcq_pool SET is_approved = TRUE WHERE id = $1', [req.params.id]);
         res.json({ message: 'MCQ approved' });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+router.put('/mcqs/:id', async (req, res) => {
+    try {
+        const { question, options, correct_option, explanation, category_id, subject, chapter, difficulty } = req.body;
+        await query(
+            'UPDATE mcq_pool SET question=$1, options=$2, correct_option=$3, explanation=$4, category_id=$5, subject=$6, chapter=$7, difficulty=$8 WHERE id=$9',
+            [question, JSON.stringify(options), correct_option, explanation, category_id, subject, chapter, difficulty, req.params.id]
+        );
+        res.json({ success: true, message: 'MCQ updated' });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+router.post('/mcqs/bulk', async (req, res) => {
+    try {
+        const { mcqs } = req.body;
+        const crypto = require('crypto');
+        let count = 0;
+        for (const m of mcqs) {
+            const hash = crypto.createHash('sha256').update(m.question.trim().toLowerCase()).digest('hex');
+            const result = await query(
+                `INSERT INTO mcq_pool (question, options, correct_option, explanation, category_id, subject, chapter, difficulty, is_approved, question_hash)
+                 SELECT $1, $2, $3, $4, $5, $6, $7, $8, TRUE, $9
+                 WHERE NOT EXISTS (SELECT 1 FROM mcq_pool WHERE question_hash = $9)
+                 RETURNING id`,
+                [m.question, JSON.stringify(m.options), m.correct_option, m.explanation, m.category_id, m.subject, m.chapter, m.difficulty || 'medium', hash]
+            );
+            if (result.rows[0]) count++;
+        }
+        res.json({ success: true, message: `${count} MCQs uploaded successfully` });
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
