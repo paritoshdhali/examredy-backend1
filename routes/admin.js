@@ -550,23 +550,39 @@ router.delete('/ai-providers/:id', async (req, res) => {
 // --- 9. SUBSCRIPTIONS & REFERRALS ---
 
 router.get('/plans', async (req, res) => {
-    const result = await query('SELECT * FROM subscription_plans ORDER BY price ASC');
-    res.json(result.rows);
+    try {
+        const result = await query('SELECT * FROM subscription_plans ORDER BY price ASC');
+        res.json(result.rows);
+    } catch (e) { res.status(500).json({ error: e.message }); }
 });
+
 router.post('/plans', async (req, res) => {
-    const { name, duration_hours, price, is_active } = req.body;
-    await query('INSERT INTO subscription_plans (name, duration_hours, price, is_active) VALUES ($1,$2,$3,$4)', [name, duration_hours, price, is_active || true]);
-    res.json({ message: 'Plan added' });
+    try {
+        const { name, duration_hours, price, is_active } = req.body;
+        await query(
+            'INSERT INTO subscription_plans (name, duration_hours, price, is_active) VALUES ($1,$2,$3,$4)',
+            [name, parseInt(duration_hours), parseFloat(price), is_active !== undefined ? is_active : true]
+        );
+        res.json({ success: true, message: 'Plan added' });
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
 });
+
 router.put('/plans/:id', async (req, res) => {
-    const { name, duration_hours, price, is_active } = req.body;
-    await query('UPDATE subscription_plans SET name=$1, duration_hours=$2, price=$3, is_active=$4 WHERE id=$5', [name, duration_hours, price, is_active, req.params.id]);
-    res.json({ message: 'Plan updated' });
+    try {
+        const { name, duration_hours, price, is_active } = req.body;
+        const result = await query(
+            'UPDATE subscription_plans SET name=$1, duration_hours=$2, price=$3, is_active=$4 WHERE id=$5',
+            [name, parseInt(duration_hours), parseFloat(price), is_active, req.params.id]
+        );
+        res.json({ success: true, message: 'Plan updated' });
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
 });
 
 router.put('/plans/:id/status', async (req, res) => {
-    await query('UPDATE subscription_plans SET is_active = $1 WHERE id = $2', [req.body.is_active, req.params.id]);
-    res.json({ message: 'Plan status updated' });
+    try {
+        await query('UPDATE subscription_plans SET is_active = $1 WHERE id = $2', [req.body.is_active, req.params.id]);
+        res.json({ message: 'Plan status updated' });
+    } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 router.get('/referrals', async (req, res) => {
