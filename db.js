@@ -308,12 +308,28 @@ const initDB = async () => {
             await query(`ALTER TABLE ai_providers ADD CONSTRAINT unique_ai_provider_name UNIQUE (name);`);
         } catch (e) { }
 
-        // Ensure GEMINI is there but active is managed by admin
+        // Seed default AI providers — only insert if NOT exists, never overwrite admin changes
         const geminiKey = process.env.AI_API_KEY || process.env.GEMINI_API_KEY || '';
-        console.log(`AI Provider Sync: Key detected? ${!!geminiKey} (Source: ${process.env.AI_API_KEY ? 'AI_API_KEY' : (process.env.GEMINI_API_KEY ? 'GEMINI_API_KEY' : 'NONE')})`);
+        console.log(`AI Provider Sync: Gemini Key detected? ${!!geminiKey}`);
+
+        // Google Gemini — insert only if not already present. If AI_API_KEY is set, update the key.
+        if (geminiKey) {
+            await query(`INSERT INTO ai_providers (name, base_url, api_key, model_name, is_active) 
+                VALUES ('Google Gemini', 'https://generativelanguage.googleapis.com/v1beta/models', $1, 'gemini-1.5-flash', FALSE) 
+                ON CONFLICT (name) DO UPDATE SET api_key = EXCLUDED.api_key WHERE ai_providers.api_key IS NULL OR ai_providers.api_key = '';`,
+                [geminiKey]);
+        } else {
+            await query(`INSERT INTO ai_providers (name, base_url, api_key, model_name, is_active) 
+                VALUES ('Google Gemini', 'https://generativelanguage.googleapis.com/v1beta/models', '', 'gemini-1.5-flash', FALSE) 
+                ON CONFLICT (name) DO NOTHING;`);
+        }
+
+        // OpenRouter — always seed the row, never overwrite if already configured
         await query(`INSERT INTO ai_providers (name, base_url, api_key, model_name, is_active) 
-            VALUES ('Google Gemini', 'https://generativelanguage.googleapis.com/v1beta/models', $1, 'gemini-1.5-flash', true) 
-            ON CONFLICT (name) DO UPDATE SET api_key = $1;`, [geminiKey]);
+            VALUES ('OpenRouter', 'https://openrouter.ai/api/v1', '', 'meta-llama/llama-3.1-8b-instruct:free', FALSE) 
+            ON CONFLICT (name) DO NOTHING;`);
+
+        console.log('✅ AI Providers seeded (existing config preserved).');
 
         // Payment Gateway Settings (Requirement 6)
         await query(`CREATE TABLE IF NOT EXISTS payment_gateway_settings (
