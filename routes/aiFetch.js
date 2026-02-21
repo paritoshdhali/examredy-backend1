@@ -57,9 +57,22 @@ const { generateMCQInitial, fetchAIStructure } = require('../services/aiService'
 router.post('/boards', verifyToken, admin, async (req, res) => {
     const { state_id, state_name } = req.body;
     try {
-        const boards = await fetchAIStructure('Education Boards', `State of ${state_name}, India. Strictly provide original board names only. No placeholders.`);
+        // Strictly fetch school education boards only (Class 1-12 level)
+        const boards = await fetchAIStructure(
+            'School Education Boards',
+            `State of ${state_name}, India. List ONLY boards that govern school education (Class 1 to Class 12), such as state secondary boards, CBSE, ICSE/CISCE, NIOS. DO NOT include university boards, entrance exam boards (JEE/NEET/WBJEE), council of higher education, technical boards, or any board not related to school-level (Class 1-12) education.`
+        );
         const saved = [];
         let existingCount = 0;
+
+        // Words that indicate NON-school boards — filter them out
+        const nonSchoolKeywords = [
+            'university', 'joint entrance', 'entrance examination', 'jee', 'neet', 'council of higher',
+            'technical education', 'medical', 'engineering', 'college', 'polytechnic',
+            'distance education', 'open university', 'deemed', 'affiliated'
+        ];
+        const isNonSchoolBoard = (name) =>
+            nonSchoolKeywords.some(kw => name.toLowerCase().includes(kw));
 
         await query('BEGIN');
         try {
@@ -68,6 +81,8 @@ router.post('/boards', verifyToken, admin, async (req, res) => {
                 // Smarter placeholder / error guard
                 const isPlaceholder = /^(board|subject|chapter|class)\s+([0-9a-z])$/i.test(name.trim());
                 if (isPlaceholder || name.toLowerCase().includes('placeholder') || name.startsWith('DEBUG_ERROR')) continue;
+                // Skip non-school boards (university/entrance/council etc.)
+                if (isNonSchoolBoard(name)) { console.log(`[Boards Filter] Skipped non-school board: ${name}`); continue; }
 
                 const result = await query(
                     'INSERT INTO boards (name, state_id, is_active) VALUES ($1, $2, $3) ON CONFLICT (state_id, name) DO NOTHING RETURNING *',
