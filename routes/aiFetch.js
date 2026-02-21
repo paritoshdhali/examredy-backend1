@@ -188,6 +188,52 @@ router.post('/papers', verifyToken, admin, async (req, res) => {
     }
 });
 
+// @route   POST /api/ai-fetch/streams
+// Returns the streams relevant for given board + class (checks DB for existing, adds if needed)
+router.post('/streams', verifyToken, admin, async (req, res) => {
+    const { board_name, class_name } = req.body;
+    try {
+        // Ask AI which streams are relevant for this board+class
+        const aiStreams = await fetchAIStructure(
+            'Streams',
+            `Board: "${board_name}", ${class_name} (India). List ONLY the academic streams/branches offered at this class level by this board. Typical values: Science, Commerce, Arts/Humanities, Vocational. Return only what this board actually offers.`
+        );
+
+        // Upsert streams into DB (or match existing)
+        const resultStreams = [];
+        for (const item of aiStreams) {
+            const name = (item.name || '').trim().substring(0, 100);
+            if (!name) continue;
+            // Insert if not exists, then return the row
+            const r = await query(
+                `INSERT INTO streams (name) VALUES ($1) ON CONFLICT (name) DO NOTHING;`,
+                [name]
+            );
+            const existing = await query(`SELECT * FROM streams WHERE LOWER(name) = LOWER($1) LIMIT 1`, [name]);
+            if (existing.rows[0]) resultStreams.push(existing.rows[0]);
+        }
+
+        // If AI returned nothing, fall back to all existing streams
+        const allStreams = resultStreams.length > 0 ? resultStreams
+            : (await query('SELECT * FROM streams ORDER BY name ASC')).rows;
+
+        res.json({
+            success: true,
+            streams: allStreams,
+            message: `${resultStreams.length > 0 ? resultStreams.length + ' streams' : 'Default streams'} loaded for ${board_name}`
+        });
+    } catch (error) {
+        console.error('AI Fetch Streams Error:', error);
+        // Fallback: return all DB streams
+        try {
+            const fallback = await query('SELECT * FROM streams ORDER BY name ASC');
+            res.json({ success: true, streams: fallback.rows, message: 'Default streams loaded (AI unavailable)' });
+        } catch (e2) {
+            res.status(500).json({ message: error.message || 'Server error during stream fetch' });
+        }
+    }
+});
+
 // @route   POST /api/ai-fetch/subjects
 router.post('/subjects', verifyToken, admin, async (req, res) => {
     const { category_id, board_id, university_id, class_id, stream_id, semester_id, degree_type_id, paper_stage_id, context_name } = req.body;
