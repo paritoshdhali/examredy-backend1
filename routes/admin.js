@@ -332,6 +332,56 @@ router.get('/mcqs', async (req, res) => {
     res.json(result.rows);
 });
 
+// --- 1. DASHBOARD & ANALYTICS ---
+
+router.get('/stats', async (req, res) => {
+    try {
+        const users = await query('SELECT COUNT(*) FROM users');
+        const mcqs = await query('SELECT COUNT(*) FROM mcq_pool');
+        const activeSessions = await query("SELECT COUNT(*) FROM group_sessions WHERE is_active = TRUE");
+        res.json({
+            users: users.rows[0].count,
+            mcqs: mcqs.rows[0].count,
+            sessions: activeSessions.rows[0].count
+        });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+router.get('/analytics/revenue', async (req, res) => {
+    try {
+        const total = await query("SELECT SUM(amount) FROM payments WHERE status IN ('captured', 'success')");
+        const today = await query("SELECT SUM(amount) FROM payments WHERE status IN ('captured', 'success') AND created_at >= CURRENT_DATE");
+        const month = await query("SELECT SUM(amount) FROM payments WHERE status IN ('captured', 'success') AND created_at >= date_trunc('month', CURRENT_DATE)");
+        const year = await query("SELECT SUM(amount) FROM payments WHERE status IN ('captured', 'success') AND created_at >= date_trunc('year', CURRENT_DATE)");
+
+        const chartData = await query(`
+            SELECT date_trunc('day', created_at) as date, SUM(amount) as amount 
+            FROM payments 
+            WHERE status IN ('captured', 'success') AND created_at >= CURRENT_DATE - INTERVAL '30 days'
+            GROUP BY 1 ORDER BY 1 ASC
+        `);
+
+        res.json({
+            total: parseFloat(total.rows[0].sum || 0),
+            today: parseFloat(today.rows[0].sum || 0),
+            thisMonth: parseFloat(month.rows[0].sum || 0),
+            thisYear: parseFloat(year.rows[0].sum || 0),
+            chartData: chartData.rows
+        });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+router.get('/analytics/subscriptions', async (req, res) => {
+    try {
+        const active = await query("SELECT COUNT(*) FROM users WHERE is_premium = TRUE AND premium_expiry > NOW()");
+        const total = await query("SELECT COUNT(*) FROM users WHERE role = 'user'");
+        res.json({
+            activePremium: parseInt(active.rows[0].count),
+            totalUsers: parseInt(total.rows[0].count)
+        });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // MCQ Approve
 router.get('/mcqs/stats', async (req, res) => {
     try {
