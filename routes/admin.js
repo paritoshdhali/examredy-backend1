@@ -650,17 +650,23 @@ router.put('/settings/legal/:id', async (req, res) => {
 });
 
 router.put('/settings/ads', async (req, res) => {
-    // Requirements: Google AdSense Script (Header), Body Script, ads.txt Editor
-    const keys = {
-        'ADS_HEADER_SCRIPT': req.body.ADS_HEADER_SCRIPT,
-        'ADS_BODY_SCRIPT': req.body.ADS_BODY_SCRIPT,
-        'ADS_TXT': req.body.ADS_TXT,
-        'ADS_ENABLED': String(req.body.ADS_ENABLED)
-    };
-    for (const [key, value] of Object.entries(keys)) {
-        await query('INSERT INTO system_settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = $2', [key, String(value)]);
-    }
-    res.json({ message: 'Ads settings updated' });
+    try {
+        const keys = {
+            'ADS_HEADER_SCRIPT': req.body.ADS_HEADER_SCRIPT,
+            'ADS_BODY_SCRIPT': req.body.ADS_BODY_SCRIPT,
+            'ADS_TXT': req.body.ADS_TXT,
+            'ADS_ENABLED': String(req.body.ADS_ENABLED),
+            'ADS_TOP_BANNER': req.body.ADS_TOP_BANNER,
+            'ADS_MID_CONTENT': req.body.ADS_MID_CONTENT,
+            'ADS_BOTTOM_BANNER': req.body.ADS_BOTTOM_BANNER
+        };
+        for (const [key, value] of Object.entries(keys)) {
+            if (value !== undefined) {
+                await query('INSERT INTO system_settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = $2', [key, String(value)]);
+            }
+        }
+        res.json({ success: true, message: 'Ad configuration updated' });
+    } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 router.put('/settings/seo', async (req, res) => {
