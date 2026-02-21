@@ -248,26 +248,31 @@ router.post('/subjects', verifyToken, admin, async (req, res) => {
                 const name = (item.name || '').substring(0, 200);
                 const isPlaceholder = /^(board|subject|chapter|class)\s+([0-9a-z])$/i.test(name.trim());
                 if (isPlaceholder || name.toLowerCase().includes('placeholder') || name.startsWith('DEBUG_ERROR')) continue;
-                // Robust insertion with NULL handling for stream_id
+
+                // Check if subject already exists
+                const existing = await query(
+                    `SELECT id FROM subjects 
+                     WHERE board_id = $1 AND class_id = $2 
+                     AND (stream_id = $3 OR (stream_id IS NULL AND $3 IS NULL)) 
+                     AND LOWER(name) = LOWER($4)`,
+                    [board_id, class_id, stream_id, name]
+                );
+
+                if (existing.rows.length > 0) {
+                    existingCount++;
+                    continue;
+                }
+
+                // Insert new subject
                 const result = await query(
                     `INSERT INTO subjects (
                         name, category_id, board_id, university_id, class_id, stream_id,
                         semester_id, degree_type_id, paper_stage_id, is_active
-                    )
-                    SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE
-                    WHERE NOT EXISTS (
-                        SELECT 1 FROM subjects 
-                        WHERE board_id = $3 AND class_id = $5 
-                        AND (stream_id = $6 OR (stream_id IS NULL AND $6 IS NULL)) 
-                        AND name = $1
-                    )
-                    RETURNING *`,
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE) RETURNING *`,
                     [name, category_id, board_id, university_id, class_id, stream_id, semester_id, degree_type_id, paper_stage_id]
                 );
                 if (result.rows[0]) {
                     saved.push(result.rows[0]);
-                } else {
-                    existingCount++;
                 }
             }
             await query('COMMIT');
@@ -304,8 +309,8 @@ router.post('/chapters', verifyToken, admin, async (req, res) => {
                 if (isPlaceholder || name.toLowerCase().includes('placeholder') || name.startsWith('DEBUG_ERROR')) continue;
 
                 const result = await query(
-                    'INSERT INTO chapters (name, subject_id, is_active) VALUES ($1, $2, $3) ON CONFLICT (subject_id, name) DO NOTHING RETURNING *',
-                    [name, subject_id, true]
+                    'INSERT INTO chapters (name, subject_id, is_active) VALUES ($1, $2, TRUE) ON CONFLICT (subject_id, name) DO NOTHING RETURNING *',
+                    [name, subject_id]
                 );
                 if (result.rows[0]) {
                     saved.push(result.rows[0]);
