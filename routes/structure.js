@@ -21,7 +21,7 @@ router.get('/', (req, res) => {
 });
 
 // @route   GET /api/structure/categories
-router.get('/categories', (req, res) => safeFetch('SELECT id, name FROM categories WHERE is_active = TRUE ORDER BY sort_order ASC', [], res));
+router.get('/categories', (req, res) => safeFetch('SELECT * FROM categories WHERE is_active = TRUE ORDER BY sort_order ASC', [], res));
 
 // @route   GET /api/structure/states
 router.get('/states', (req, res) => safeFetch('SELECT id, name FROM states ORDER BY name ASC', [], res));
