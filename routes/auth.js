@@ -112,11 +112,80 @@ router.get('/me', verifyToken, async (req, res) => {
     res.json(req.user);
 });
 
-// @route   GET /api/auth/google
-// @desc    Google OAuth Placeholder
+// @route   POST /api/auth/google
+// @desc    Authenticate with Google OAuth
 // @access  Public
-router.get('/google', (req, res) => {
-    res.json({ message: 'Google OAuth flow would start here' });
+router.post('/google', async (req, res) => {
+    const { credential, referrer_id } = req.body; // credential here will be the access_token
+
+    if (!credential) {
+        return res.status(400).json({ message: 'Google credential missing' });
+    }
+
+    try {
+        // Fetch user info using the access token
+        const response = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+            headers: { Authorization: `Bearer ${credential}` }
+        });
+
+        if (!response.ok) {
+            throw new Error('Failed to fetch user info from Google');
+        }
+
+        const payload = await response.json();
+        const { email, name } = payload;
+
+        // Check if user exists by email
+        const userExists = await query('SELECT * FROM users WHERE email = $1', [email]);
+        let user;
+
+        if (userExists.rows.length > 0) {
+            // User exists, log them in
+            user = userExists.rows[0];
+            console.log(`Google Login successful for existing user: ${email}`);
+        } else {
+            // User does not exist, create a new account
+            // Since it's a social login, we generate a random complex password
+            const randomPassword = require('crypto').randomBytes(16).toString('hex');
+            const hashedPassword = await hashPassword(randomPassword);
+
+            // Use the Google name or fallback to part of the email
+            const username = name || email.split('@')[0];
+
+            const newUser = await query(
+                'INSERT INTO users (username, email, password) VALUES ($1, $2, $3) RETURNING id, username, email, role, is_premium',
+                [username, email, hashedPassword]
+            );
+
+            user = newUser.rows[0];
+            console.log(`Google Auto-Registration successful for new user: ${email}`);
+
+            // Handle Referral Logic if provided
+            if (referrer_id) {
+                const referrer = await query('SELECT id FROM users WHERE id = $1', [referrer_id]);
+                if (referrer.rows.length > 0) {
+                    await query(
+                        'INSERT INTO referrals (referrer_id, referred_user_id) VALUES ($1, $2)',
+                        [referrer_id, user.id]
+                    );
+                }
+            }
+        }
+
+        // Return standard authentication response matching normal login
+        res.json({
+            id: user.id,
+            username: user.username,
+            email: user.email,
+            role: user.role || 'user',
+            is_premium: user.is_premium || false,
+            token: generateToken(user.id, user.role || 'user', user.email)
+        });
+
+    } catch (error) {
+        console.error('Google Auth Error:', error);
+        res.status(401).json({ message: 'Invalid Google authentication token' });
+    }
 });
 
 module.exports = router;
