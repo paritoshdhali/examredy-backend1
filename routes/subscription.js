@@ -114,40 +114,32 @@ router.post('/verify-payment', verifyToken, async (req, res) => {
             [expiry, req.user.id]
         );
 
-        // 4. CHECK REFERRAL REWARD (The Critical Fix)
-        const referralCheck = await client.query(
-            `SELECT * FROM referrals WHERE referred_user_id = $1 AND reward_given = FALSE`,
-            [req.user.id]
-        );
+        // 4. CHECK REFERRAL REWARD
+        const sysResult = await client.query("SELECT key, value FROM system_settings WHERE key IN ('REFERRAL_ENABLED', 'REFERRAL_REWARD_TYPE', 'REFERRAL_REWARD_DURATION', 'REFERRAL_MIN_PURCHASE_RS')");
+        const sys = Object.fromEntries(sysResult.rows.map(r => [r.key, r.value]));
 
-        if (referralCheck.rows.length > 0) {
-            const referrerId = referralCheck.rows[0].referrer_id;
+        if (sys.REFERRAL_ENABLED === 'true' && plan.price >= parseFloat(sys.REFERRAL_MIN_PURCHASE_RS || 0)) {
+            const referralCheck = await client.query(
+                `SELECT * FROM referrals WHERE referred_user_id = $1 AND reward_given = FALSE`,
+                [req.user.id]
+            );
 
-            // Give Reward: 90 Minutes (1.5 hours) Extension to Referrer
-            const referrerUser = await client.query('SELECT is_premium, premium_expiry FROM users WHERE id = $1', [referrerId]);
+            if (referralCheck.rows.length > 0) {
+                const referrerId = referralCheck.rows[0].referrer_id;
+                const refId = referralCheck.rows[0].id;
 
-            if (referrerUser.rows.length > 0) {
-                let newRefExpiry = new Date();
-                const currentRef = referrerUser.rows[0];
+                const type = sys.REFERRAL_REWARD_TYPE || 'days';
+                const duration = parseInt(sys.REFERRAL_REWARD_DURATION || 2);
+                const intervalStr = type === 'hours' ? `${duration} hours` : `${duration} days`;
 
-                // If currently premium and not expired, extend from expiry, else from now
-                if (currentRef.is_premium && currentRef.premium_expiry && new Date(currentRef.premium_expiry) > new Date()) {
-                    newRefExpiry = new Date(currentRef.premium_expiry);
-                }
+                // Give Reward to Referrer
+                await client.query(`UPDATE users SET is_premium = TRUE, premium_expiry = GREATEST(COALESCE(premium_expiry, CURRENT_TIMESTAMP), CURRENT_TIMESTAMP) + INTERVAL '${intervalStr}' WHERE id = $1`, [referrerId]);
 
-                // Add 90 minutes
-                newRefExpiry.setMinutes(newRefExpiry.getMinutes() + 90);
-
-                await client.query(
-                    'UPDATE users SET is_premium = TRUE, premium_expiry = $1 WHERE id = $2',
-                    [newRefExpiry, referrerId]
-                );
+                // Give Reward to Referred User (extra bonus on top of their purchase)
+                await client.query(`UPDATE users SET is_premium = TRUE, premium_expiry = GREATEST(COALESCE(premium_expiry, CURRENT_TIMESTAMP), CURRENT_TIMESTAMP) + INTERVAL '${intervalStr}' WHERE id = $1`, [req.user.id]);
 
                 // Mark reward given
-                await client.query(
-                    'UPDATE referrals SET reward_given = TRUE, status = \'completed\' WHERE id = $1',
-                    [referralCheck.rows[0].id]
-                );
+                await client.query(`UPDATE referrals SET reward_given = TRUE, status = 'completed' WHERE id = $1`, [refId]);
             }
         }
 

@@ -742,18 +742,55 @@ router.put('/settings/seo', async (req, res) => {
 
 router.put('/settings/referral', async (req, res) => {
     try {
-        const { REFERRAL_REWARD_DAYS, REFERRAL_MIN_PURCHASE_RS } = req.body;
+        const { REFERRAL_ENABLED, REFERRAL_REWARD_TYPE, REFERRAL_REWARD_DURATION, REFERRAL_MIN_PURCHASE_RS } = req.body;
         const keys = {
-            'REFERRAL_REWARD_DAYS': REFERRAL_REWARD_DAYS,
-            'REFERRAL_MIN_PURCHASE_RS': REFERRAL_MIN_PURCHASE_RS
+            'REFERRAL_ENABLED': String(REFERRAL_ENABLED), // 'true' or 'false'
+            'REFERRAL_REWARD_TYPE': REFERRAL_REWARD_TYPE, // 'hours' or 'days'
+            'REFERRAL_REWARD_DURATION': REFERRAL_REWARD_DURATION,
+            'REFERRAL_MIN_PURCHASE_RS': REFERRAL_MIN_PURCHASE_RS,
+            // Keep backwards compatibility
+            'REFERRAL_REWARD_DAYS': REFERRAL_REWARD_TYPE === 'days' ? REFERRAL_REWARD_DURATION : undefined
         };
         for (const [key, value] of Object.entries(keys)) {
-            if (value !== undefined) {
+            if (value !== undefined && value !== 'undefined') {
                 await query('INSERT INTO system_settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = $2', [key, String(value)]);
             }
         }
         res.json({ success: true, message: 'Referral rules updated' });
     } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+router.post('/referrals/:id/grant', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const refCheck = await query('SELECT * FROM referrals WHERE id = $1', [id]);
+        if (refCheck.rows.length === 0) return res.status(404).json({ error: 'Referral not found' });
+        const ref = refCheck.rows[0];
+
+        if (ref.reward_given) return res.status(400).json({ error: 'Reward already granted' });
+
+        const sys = await query('SELECT key, value FROM system_settings WHERE key IN ($1, $2)', ['REFERRAL_REWARD_TYPE', 'REFERRAL_REWARD_DURATION']);
+        const settings = Object.fromEntries(sys.rows.map(r => [r.key, r.value]));
+
+        const type = settings.REFERRAL_REWARD_TYPE || 'days';
+        const duration = parseInt(settings.REFERRAL_REWARD_DURATION || 2);
+
+        const intervalStr = type === 'hours' ? `${duration} hours` : `${duration} days`;
+
+        // Grant to referrer
+        await query(`UPDATE users SET is_premium = true, premium_expiry = GREATEST(COALESCE(premium_expiry, CURRENT_TIMESTAMP), CURRENT_TIMESTAMP) + INTERVAL '${intervalStr}' WHERE id = $1`, [ref.referrer_id]);
+
+        // Grant to referred
+        await query(`UPDATE users SET is_premium = true, premium_expiry = GREATEST(COALESCE(premium_expiry, CURRENT_TIMESTAMP), CURRENT_TIMESTAMP) + INTERVAL '${intervalStr}' WHERE id = $1`, [ref.referred_user_id]);
+
+        // Mark complete
+        await query(`UPDATE referrals SET status = 'completed', reward_given = TRUE WHERE id = $1`, [id]);
+
+        res.json({ success: true, message: `Reward of ${duration} ${type} granted to both users manually.` });
+    } catch (e) {
+        console.error('Manual Grant Error:', e);
+        res.status(500).json({ error: e.message });
+    }
 });
 
 router.put('/settings/payments/:provider', async (req, res) => {
