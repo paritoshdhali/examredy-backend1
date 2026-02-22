@@ -160,6 +160,89 @@ router.get('/practice', verifyToken, subscriptionCheck, async (req, res) => {
     }
 });
 
+// @route   POST /api/mcq/generate-practice
+// @desc    Generate MCQs on-the-fly for practice (Live AI)
+// @access  Private (with limits)
+router.post('/generate-practice', verifyToken, subscriptionCheck, async (req, res) => {
+    const { topic, language = 'English', limit = 10 } = req.body;
+
+    if (!topic) {
+        return res.status(400).json({ message: 'Topic is required for practice generation' });
+    }
+
+    const client = await pool.connect();
+
+    try {
+        let requestedLimit = limit;
+        // Free user check via Transaction (Avoid Race Condition)
+        if (!req.isPremium) {
+            await client.query('BEGIN');
+
+            const settingsResult = await client.query('SELECT key, value FROM free_limit_settings');
+            const settings = Object.fromEntries(settingsResult.rows.map(r => [r.key, r.value]));
+            const freeLimit = parseInt(settings['FREE_SESSIONS_COUNT'] || '2');
+            const mcqsPerSession = parseInt(settings['FREE_SESSION_MCQS'] || '10');
+
+            // Lock row for update
+            const usageResult = await client.query(
+                `SELECT count FROM user_daily_usage WHERE user_id = $1 AND date = CURRENT_DATE FOR UPDATE`,
+                [req.user.id]
+            );
+
+            let dailyCount = 0;
+            if (usageResult.rows.length > 0) {
+                dailyCount = usageResult.rows[0].count;
+            }
+
+            if (dailyCount >= freeLimit) {
+                await client.query('ROLLBACK');
+                return res.status(403).json({
+                    message: 'Daily free limit reached',
+                    code: 'LIMIT_REACHED',
+                    popup: {
+                        heading: settings['POPUP_HEADING'],
+                        text: settings['POPUP_TEXT']
+                    }
+                });
+            }
+
+            // Valid usage, increment count
+            await client.query(`
+                INSERT INTO user_daily_usage (user_id, date, count)
+                VALUES ($1, CURRENT_DATE, 1)
+                ON CONFLICT (user_id, date)
+                DO UPDATE SET count = user_daily_usage.count + 1
+             `, [req.user.id]);
+
+            await client.query('COMMIT');
+
+            // Override limit from query if free user
+            requestedLimit = mcqsPerSession;
+        } else {
+            requestedLimit = parseInt(limit);
+        }
+
+        // Generate MCQs ON THE FLY without saving to DB
+        const generatedQs = await generateMCQInitial(topic, requestedLimit, language);
+
+        // Ensure IDs exist for MCQSession.jsx component tracking (synthetic IDs)
+        const finalQs = generatedQs.map((q, idx) => ({
+            id: `live_${Date.now()}_${idx}`,
+            ...q
+        }));
+
+        res.json(finalQs);
+    } catch (error) {
+        if (!req.isPremium) {
+            try { await client.query('ROLLBACK'); } catch (e) { }
+        }
+        console.error('Live Generataion Error:', error);
+        res.status(500).json({ message: 'Error generating practice session' });
+    } finally {
+        client.release();
+    }
+});
+
 // @route   POST /api/mcq/submit
 // @desc    Submit answer and get result
 // @access  Private
@@ -167,6 +250,21 @@ router.post('/submit', verifyToken, async (req, res) => {
     const { mcq_id, selected_option } = req.body;
 
     try {
+        // Check if synthetic ID
+        if (typeof mcq_id === 'string' && mcq_id.startsWith('live_')) {
+            // For live-generated MCQs, we can't look up correct answer in DB.
+            // Client MUST send the known correct option OR we don't track history for them yet.
+            const { actual_correct_option } = req.body;
+            const isCorrect = actual_correct_option === selected_option;
+
+            // Note: We can't insert into user_mcq_history because there is no true mcq_id integer.
+            // But we can return success so the UI stays green/red.
+            return res.json({
+                is_correct: isCorrect,
+                correct_option: actual_correct_option
+            });
+        }
+
         const result = await query('SELECT * FROM mcq_pool WHERE id = $1', [mcq_id]);
         if (result.rows.length === 0) {
             return res.status(404).json({ message: 'MCQ not found' });

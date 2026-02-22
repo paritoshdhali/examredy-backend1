@@ -5,12 +5,12 @@ const axios = require('axios');
  * Generates MCQs using the active AI provider.
  * Now with robust OpenRouter auto-detection.
  */
-const generateMCQInitial = async (topic, count = 5) => {
+const generateMCQInitial = async (topic, count = 5, language = 'English') => {
     try {
         const providerRes = await query('SELECT * FROM ai_providers WHERE is_active = TRUE LIMIT 1');
         if (providerRes.rows.length === 0 || !providerRes.rows[0].api_key) {
             console.warn('No active AI provider found. Falling back to mock.');
-            return fallbackMock(topic, count);
+            return fallbackMock(topic, count, language);
         }
 
         const provider = providerRes.rows[0];
@@ -35,6 +35,8 @@ const generateMCQInitial = async (topic, count = 5) => {
         - "explanation": (string)
         - "subject": (string) "${topic}"
         - "chapter": (string)
+        
+        CRITICAL INSTRUCTION: The questions, options, and explanation MUST be written entirely in the following language: ${language}.
         
         Return ONLY valid JSON array.`;
 
@@ -80,12 +82,12 @@ const generateMCQInitial = async (topic, count = 5) => {
     }
 };
 
-const fallbackMock = (topic, count, errorMsg = '') => {
+const fallbackMock = (topic, count, language, errorMsg = '') => {
     return Array.from({ length: count }).map((_, i) => ({
-        question: `[MOCK] ${topic} practice question ${i + 1}?`,
+        question: `[MOCK - ${language}] ${topic} practice question ${i + 1}?`,
         options: ["Option 1", "Option 2", "Option 3", "Option 4"],
         correct_option: 0,
-        explanation: `This is a fallback mock explanation for ${topic}. ${errorMsg}`,
+        explanation: `This is a fallback mock explanation for ${topic} in ${language}. ${errorMsg}`,
         subject: topic,
         chapter: 'General'
     }));
