@@ -13,6 +13,14 @@ router.get('/diagnostic', async (req, res) => {
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+router.get('/fix-subjects', async (req, res) => {
+    try {
+        await query('UPDATE subjects SET category_id = (SELECT id FROM categories WHERE name ILIKE \'%school%\' LIMIT 1) WHERE board_id IS NOT NULL');
+        await query('UPDATE subjects SET category_id = (SELECT id FROM categories WHERE name ILIKE \'%university%\' OR name ILIKE \'%college%\' LIMIT 1) WHERE university_id IS NOT NULL');
+        res.json({ success: true, message: 'Subjects structure auto-healed.' });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 router.get('/debug-token', (req, res) => {
     const authHeader = req.headers.authorization || req.headers.Authorization;
     res.json({ exists: !!authHeader, format_valid: authHeader ? authHeader.toLowerCase().startsWith('bearer ') : false, received_at: new Date().toISOString() });
