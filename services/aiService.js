@@ -49,21 +49,29 @@ const generateMCQInitial = async (topic, count = 5, language = 'English') => {
             console.log(`[AI-MCQ] Endpoint: ${endpoint}, Model: ${model_name}`);
             response = await axios.post(endpoint, {
                 model: model_name,
-                messages: [{ role: 'user', content: prompt }]
+                messages: [{ role: 'user', content: prompt }],
+                temperature: 0.5, // Lower temperature for faster, more deterministic output
+                top_p: 0.9      // Slightly restrict sampling for speed
             }, {
                 headers: {
                     'Authorization': `Bearer ${api_key}`,
                     'Content-Type': 'application/json',
                     'HTTP-Referer': 'https://examredy.in',
                     'X-Title': 'ExamRedy Admin'
-                }
+                },
+                timeout: 25000 // 25 seconds max before timing out to prevent infinite hangs
             });
         } else {
             const endpoint = `${effectiveBaseUrl}/${model_name}:generateContent?key=${api_key}`;
             console.log(`[AI-MCQ] Gemini Endpoint: ${endpoint.substring(0, 45)}...`);
             response = await axios.post(endpoint, {
                 contents: [{ parts: [{ text: prompt }] }],
-                generationConfig: { response_mime_type: "application/json" }
+                generationConfig: {
+                    response_mime_type: "application/json",
+                    temperature: 0.5
+                }
+            }, {
+                timeout: 25000
             });
         }
 
