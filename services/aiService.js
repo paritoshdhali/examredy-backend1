@@ -38,7 +38,10 @@ const generateMCQInitial = async (topic, count = 5, language = 'English') => {
         - "subject": (string) "${topic}"
         - "chapter": (string)
         
-        Return ONLY a valid JSON array. Do not include any other text.`;
+        CRITICAL FORMATTING RULES:
+        1. Return ONLY a valid JSON array. Do not include any markdown formatting (like \`\`\`json).
+        2. Ensure valid JSON syntax: NO trailing commas, NO unescaped quotes inside strings, and NO missing brackets.
+        3. Do not include any other text before or after the JSON array.`;
 
         let response;
         if (isOpenAI) {
@@ -70,17 +73,30 @@ const generateMCQInitial = async (topic, count = 5, language = 'English') => {
 
         if (!responseText) throw new Error('AI Provider returned an empty response');
 
-        const cleanText = responseText.replace(/```json/gi, '').replace(/```/g, '').trim();
+        let cleanText = responseText;
+
+        // Extract just the array part to ignore conversational text at the start or end
+        const startIdx = cleanText.indexOf('[');
+        const endIdx = cleanText.lastIndexOf(']');
+        if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
+            cleanText = cleanText.substring(startIdx, endIdx + 1);
+        }
+
+        // Remove markdown tags and trailing commas from the JSON string
+        cleanText = cleanText.replace(/```(?:json)?/gi, '').replace(/```/g, '').trim();
+        cleanText = cleanText.replace(/,(?=\s*[\]}])/g, '');
+
         let parsedData;
         try {
             parsedData = JSON.parse(cleanText);
         } catch (parseError) {
-            // Try extracting JSON from within the text if the AI added conversational filler
-            const match = cleanText.match(/(\[.*\]|\{.*\})/s);
-            if (match) {
-                parsedData = JSON.parse(match[1]);
-            } else {
-                throw new Error('AI response was not valid JSON. Response started with: ' + cleanText.substring(0, 50));
+            console.error('Initial JSON Parse Failed, attempting aggressive cleanup. Error:', parseError.message);
+            try {
+                // Aggressive cleanup for common LLM control character issues (like unescaped newlines in strings, tab chars, etc.)
+                const aggressiveClean = cleanText.replace(/[\x00-\x1F\x7F-\x9F]/g, "");
+                parsedData = JSON.parse(aggressiveClean);
+            } catch (e2) {
+                throw new Error('AI response was not valid JSON. Parse Error: ' + parseError.message + '\\nResponse starts with: ' + cleanText.substring(0, 100));
             }
         }
 
