@@ -70,8 +70,20 @@ const generateMCQInitial = async (topic, count = 5, language = 'English') => {
 
         if (!responseText) throw new Error('AI Provider returned an empty response');
 
-        const cleanText = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
-        const parsedData = JSON.parse(cleanText);
+        const cleanText = responseText.replace(/```json/gi, '').replace(/```/g, '').trim();
+        let parsedData;
+        try {
+            parsedData = JSON.parse(cleanText);
+        } catch (parseError) {
+            // Try extracting JSON from within the text if the AI added conversational filler
+            const match = cleanText.match(/(\[.*\]|\{.*\})/s);
+            if (match) {
+                parsedData = JSON.parse(match[1]);
+            } else {
+                throw new Error('AI response was not valid JSON. Response started with: ' + cleanText.substring(0, 50));
+            }
+        }
+
         const mcqs = Array.isArray(parsedData) ? parsedData : (parsedData.mcqs || parsedData.questions || Object.values(parsedData).find(v => Array.isArray(v)) || []);
         return mcqs.slice(0, count);
 
