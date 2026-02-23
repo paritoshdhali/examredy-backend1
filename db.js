@@ -260,6 +260,21 @@ const initDB = async () => {
             await query(`ALTER TABLE chapters ADD COLUMN IF NOT EXISTS sort_order INTEGER DEFAULT 0;`);
         } catch (e) { }
 
+        // --- MIGRATION: Ensure 'is_active' exists on all legacy tables ---
+        const tablesToMigrate = [
+            'categories', 'boards', 'classes', 'streams', 'board_classes',
+            'universities', 'degree_types', 'semesters', 'papers_stages',
+            'subjects', 'chapters'
+        ];
+        for (const tableName of tablesToMigrate) {
+            try {
+                await query(`ALTER TABLE ${tableName} ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;`);
+            } catch (e) {
+                console.log(`Migration for ${tableName}.is_active: Handled or skipped.`);
+            }
+        }
+        // ----------------------------------------------------------------
+
         // Other System Tables
         await query(`CREATE TABLE IF NOT EXISTS subscription_plans (id SERIAL PRIMARY KEY, name VARCHAR(50) NOT NULL, duration_hours INTEGER NOT NULL, price DECIMAL(10, 2) NOT NULL, is_active BOOLEAN DEFAULT TRUE);`);
 
