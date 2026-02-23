@@ -426,6 +426,10 @@ const initDB = async () => {
             await query(`INSERT INTO system_settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING;`, [key, value]);
         }
 
+        // Insert default settings if not exists
+        await query(`INSERT INTO system_settings (key, value) VALUES ('GROUP_SIZE_LIMIT', '15') ON CONFLICT (key) DO UPDATE SET value = '15';`);
+        await query(`INSERT INTO system_settings (key, value) VALUES ('REFERRAL_BONUS_DAYS', '7') ON CONFLICT (key) DO NOTHING;`);
+
         // AI Fetch Logs (Requirement 6)
         await query(`CREATE TABLE IF NOT EXISTS ai_fetch_logs (
             id SERIAL PRIMARY KEY,

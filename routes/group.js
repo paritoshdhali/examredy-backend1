@@ -139,7 +139,7 @@ router.post('/join', verifyToken, async (req, res) => {
 // @desc    Start the battle (Host only)
 // @access  Private
 router.post('/start', verifyToken, async (req, res) => {
-    const { code, categoryId } = req.body;
+    const { code, categoryId, boardId, classId, streamId, semesterId, universityId, paperStageId, subjectId, chapterId } = req.body;
     try {
         const sessionRes = await query('SELECT * FROM group_sessions WHERE id = $1', [code]);
         if (sessionRes.rows.length === 0) return res.status(404).json({ message: 'Session not found' });
@@ -149,25 +149,43 @@ router.post('/start', verifyToken, async (req, res) => {
             return res.status(403).json({ message: 'Only host can start' });
         }
 
-        // Fetch shared MCQs for this session
-        const mcqQuery = await query(`
-            SELECT id FROM mcq_pool 
-            WHERE category_id = $1 AND is_approved = TRUE 
-            ORDER BY RANDOM() LIMIT 10
-        `, [categoryId]);
+        // Build dynamic query for MCQs
+        let mcqParams = [categoryId];
+        let mcqQueryStr = `SELECT id, question, options, correct_option, explanation FROM mcq_pool WHERE category_id = $1 AND is_approved = TRUE`;
 
-        if (mcqQuery.rows.length === 0) {
-            return res.status(400).json({ message: 'No questions available for this category' });
+        if (chapterId) {
+            mcqParams.push(chapterId);
+            mcqQueryStr += ` AND chapter_id = $${mcqParams.length}`;
+        } else if (subjectId) { // If chapterId is not provided, try subjectId
+            mcqParams.push(subjectId);
+            mcqQueryStr += ` AND subject_id = $${mcqParams.length}`;
         }
 
-        const mcqIds = mcqQuery.rows.map(r => r.id);
+        // Add additional filters if provided
+        if (boardId) { mcqParams.push(boardId); mcqQueryStr += ` AND board_id = $${mcqParams.length}`; }
+        if (classId) { mcqParams.push(classId); mcqQueryStr += ` AND class_id = $${mcqParams.length}`; }
+        if (streamId) { mcqParams.push(streamId); mcqQueryStr += ` AND stream_id = $${mcqParams.length}`; }
+        if (semesterId) { mcqParams.push(semesterId); mcqQueryStr += ` AND semester_id = $${mcqParams.length}`; }
+        if (universityId) { mcqParams.push(universityId); mcqQueryStr += ` AND university_id = $${mcqParams.length}`; }
+        if (paperStageId) { mcqParams.push(paperStageId); mcqQueryStr += ` AND paper_stage_id = $${mcqParams.length}`; }
+
+        mcqQueryStr += ` ORDER BY RANDOM() LIMIT 10`;
+
+        const mcqQuery = await query(mcqQueryStr, mcqParams);
+
+        if (mcqQuery.rows.length === 0) {
+            return res.status(400).json({ message: 'No questions available for this selection' });
+        }
+
+        const questions = mcqQuery.rows;
+        const mcqIds = questions.map(r => r.id);
 
         await query(
             'UPDATE group_sessions SET status = \'active\', category_id = $1, mcq_ids = $2 WHERE id = $3',
             [categoryId, JSON.stringify(mcqIds), code]
         );
 
-        res.json({ message: 'Battle started', mcqIds });
+        res.json({ message: 'Battle started', questions });
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Server error' });
