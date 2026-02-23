@@ -27,18 +27,18 @@ const generateMCQInitial = async (topic, count = 5, language = 'English') => {
             effectiveBaseUrl = 'https://openrouter.ai/api/v1';
         }
 
-        const prompt = `Generate exactly ${count} multiple-choice questions (MCQs) about the topic: "${topic}". 
+        const prompt = `CRITICAL INSTRUCTION: You MUST write the ENTIRE output in the following language: ${language}. If you write in English when ${language} is requested, you will fail.
+        
+        Generate exactly ${count} multiple-choice questions (MCQs) about the topic: "${topic}". 
         The output must be a valid JSON array of objects. Each object must have:
-        - "question": (string)
-        - "options": (array of 4 strings)
+        - "question": (string in ${language})
+        - "options": (array of 4 strings in ${language})
         - "correct_option": (integer, 0-3)
-        - "explanation": (string)
+        - "explanation": (string in ${language})
         - "subject": (string) "${topic}"
         - "chapter": (string)
         
-        CRITICAL INSTRUCTION: The questions, options, and explanation MUST be written entirely in the following language: ${language}.
-        
-        Return ONLY valid JSON array.`;
+        Return ONLY a valid JSON array. Do not include any other text.`;
 
         let response;
         if (isOpenAI) {
