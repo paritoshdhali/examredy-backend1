@@ -235,6 +235,18 @@ router.put('/boards/:id', async (req, res) => {
     } catch (e) { res.status(500).json({ success: false, error: e.message }); }
 });
 
+router.get('/classes/:board_id', verifyToken, admin, async (req, res) => {
+    try {
+        const result = await query(`
+            SELECT bc.id, c.id as class_id, c.name, bc.is_active 
+            FROM board_classes bc 
+            JOIN classes c ON bc.class_id = c.id 
+            WHERE bc.board_id = $1 ORDER BY c.id ASC
+        `, [req.params.board_id]);
+        res.json(result.rows);
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // Delete ALL boards for a specific state (used for AI re-sync)
 router.delete('/boards/state/:state_id', async (req, res) => {
     try {
@@ -380,7 +392,7 @@ router.put('/bulk-approve', async (req, res) => {
             'categories': 'categories',
             'states': 'states',
             'boards': 'boards',
-            'classes': 'classes',
+            'classes': 'board_classes',
             'streams': 'streams',
             'universities': 'universities',
             'degree_types': 'degree_types',
@@ -393,7 +405,7 @@ router.put('/bulk-approve', async (req, res) => {
         const tableName = tableMap[type];
         if (!tableName) return res.status(400).json({ success: false, message: 'Invalid structure type' });
 
-        const result = await query(`UPDATE ${tableName} SET is_active = TRUE WHERE id = ANY($1) RETURNING id`, [ids]);
+        const result = await query(`UPDATE ${tableName} SET is_active = TRUE WHERE id = ANY($1::int[]) RETURNING id`, [ids]);
         res.json({ success: true, message: `${result.rowCount} items approved successfully` });
     } catch (e) {
         console.error('Bulk Approve Error:', e);

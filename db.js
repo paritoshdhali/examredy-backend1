@@ -179,6 +179,15 @@ const initDB = async () => {
             is_active BOOLEAN DEFAULT TRUE
         );`);
 
+        // Board -> Classes Explicit Mapping Table
+        await query(`CREATE TABLE IF NOT EXISTS board_classes (
+            id SERIAL PRIMARY KEY,
+            board_id INTEGER REFERENCES boards(id) ON DELETE CASCADE,
+            class_id INTEGER REFERENCES classes(id) ON DELETE CASCADE,
+            is_active BOOLEAN DEFAULT FALSE,
+            CONSTRAINT unique_board_class UNIQUE (board_id, class_id)
+        );`);
+
         await query(`CREATE TABLE IF NOT EXISTS universities (id SERIAL PRIMARY KEY, name VARCHAR(500) NOT NULL, state_id INTEGER REFERENCES states(id), logo_url TEXT, is_active BOOLEAN DEFAULT TRUE);`);
         try { await query(`ALTER TABLE universities ADD CONSTRAINT unique_university_state UNIQUE (state_id, name);`); } catch (e) { }
         try { await query(`ALTER TABLE universities ADD COLUMN IF NOT EXISTS logo_url TEXT;`); } catch (e) { }

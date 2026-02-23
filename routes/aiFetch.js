@@ -114,11 +114,63 @@ router.post('/boards', verifyToken, admin, async (req, res) => {
     }
 });
 
+// @route   POST /api/ai-fetch/classes
+router.post('/classes', verifyToken, admin, async (req, res) => {
+    const { board_id, board_name } = req.body;
+    try {
+        const allClasses = await query('SELECT id, name FROM classes ORDER BY id ASC');
+        let classesToOffer = allClasses.rows;
+
+        const n = (board_name || '').toLowerCase();
+        if (n.includes('higher secondary') || n.includes('intermediate') || n.includes('pre-university') || n.includes('+2') || n.includes('hsc') || n.includes('council of higher')) {
+            classesToOffer = classesToOffer.filter(c => parseInt(c.name.replace(/\D/g, '')) >= 11);
+        } else if (n.includes('primary') || n.includes('elementary')) {
+            classesToOffer = classesToOffer.filter(c => parseInt(c.name.replace(/\D/g, '')) <= 5);
+        } else if ((n.includes('secondary') && !n.includes('higher')) || n.includes('madhyamik') || n.includes('matriculation') || n.includes('sslc')) {
+            classesToOffer = classesToOffer.filter(c => parseInt(c.name.replace(/\D/g, '')) <= 10);
+        }
+
+        const saved = [];
+        let existingCount = 0;
+
+        await query('BEGIN');
+        try {
+            for (const c of classesToOffer) {
+                const result = await query(
+                    'INSERT INTO board_classes (board_id, class_id, is_active) VALUES ($1, $2, FALSE) ON CONFLICT (board_id, class_id) DO NOTHING RETURNING *',
+                    [board_id, c.id]
+                );
+                if (result.rows[0]) saved.push(result.rows[0]);
+                else existingCount++;
+            }
+            await query('COMMIT');
+        } catch (err) {
+            await query('ROLLBACK');
+            throw err;
+        }
+
+        let message = `${saved.length} Classes fetched.`;
+        if (existingCount > 0) message += ` ${existingCount} already existed.`;
+
+        const updated = await query(`
+            SELECT bc.id, c.id as class_id, c.name, bc.is_active 
+            FROM board_classes bc 
+            JOIN classes c ON bc.class_id = c.id 
+            WHERE bc.board_id = $1 ORDER BY c.id ASC
+        `, [board_id]);
+
+        res.json({ success: true, count: saved.length, message, updatedData: updated.rows });
+    } catch (error) {
+        console.error('AI Fetch Classes Error:', error);
+        res.status(500).json({ message: error.message || 'Server error' });
+    }
+});
+
 // @route   POST /api/ai-fetch/universities
 router.post('/universities', verifyToken, admin, async (req, res) => {
     const { state_id, state_name } = req.body;
     try {
-        const universities = await fetchAIStructure('Universities', `State of ${state_name}, India. Strictly provide original names only.`);
+        const universities = await fetchAIStructure('Universities', `State of ${state_name}, India.Strictly provide original names only.`);
         const saved = [];
         let existingCount = 0;
 
@@ -175,7 +227,7 @@ router.post('/papers', verifyToken, admin, async (req, res) => {
             await query('ROLLBACK');
             throw err;
         }
-        let message = `${saved.length} Papers/Stages fetched and saved.`;
+        let message = `${saved.length} Papers / Stages fetched and saved.`;
         if (existingCount > 0) message += ` ${existingCount} already existed.`;
         const updPap = await query('SELECT p.*, c.name as category_name FROM papers_stages p LEFT JOIN categories c ON p.category_id = c.id ORDER BY p.name ASC');
         if (saved.length === 0 && existingCount === 0) {
@@ -196,7 +248,7 @@ router.post('/streams', verifyToken, admin, async (req, res) => {
         // Ask AI which streams are relevant for this board+class
         const aiStreams = await fetchAIStructure(
             'Streams',
-            `Board: "${board_name}", ${class_name} (India). List ONLY the academic streams/branches offered at this class level by this board. Typical values: Science, Commerce, Arts/Humanities, Vocational. Return only what this board actually offers.`
+            `Board: "${board_name}", ${class_name} (India).List ONLY the academic streams / branches offered at this class level by this board.Typical values: Science, Commerce, Arts / Humanities, Vocational.Return only what this board actually offers.`
         );
 
         // Upsert streams into DB (or match existing)
@@ -206,7 +258,7 @@ router.post('/streams', verifyToken, admin, async (req, res) => {
             if (!name) continue;
             // Insert if not exists, then return the row
             const r = await query(
-                `INSERT INTO streams (name) VALUES ($1) ON CONFLICT (name) DO NOTHING;`,
+                `INSERT INTO streams(name) VALUES($1) ON CONFLICT(name) DO NOTHING; `,
                 [name]
             );
             const existing = await query(`SELECT * FROM streams WHERE LOWER(name) = LOWER($1) LIMIT 1`, [name]);
@@ -241,7 +293,7 @@ router.post('/semesters', verifyToken, admin, async (req, res) => {
     try {
         const aiItems = await fetchAIStructure(
             'Terms',
-            `University: "${university_name}", Degree: "${degree_type_name}" (India). List the academic terms used (e.g., "Semester 1", "Semester 2", or "1st Year", "2nd Year"). Return only the names of the terms.`
+            `University: "${university_name}", Degree: "${degree_type_name}"(India).List the academic terms used(e.g., "Semester 1", "Semester 2", or "1st Year", "2nd Year").Return only the names of the terms.`
         );
 
         const resultSemesters = [];
@@ -251,9 +303,9 @@ router.post('/semesters', verifyToken, admin, async (req, res) => {
 
             // Insert into semesters table
             const r = await query(
-                `INSERT INTO semesters (name, university_id) 
-                 VALUES ($1, $2) 
-                 ON CONFLICT (university_id, name) DO NOTHING RETURNING *;`,
+                `INSERT INTO semesters(name, university_id)
+        VALUES($1, $2) 
+                 ON CONFLICT(university_id, name) DO NOTHING RETURNING *; `,
                 [name, university_id]
             );
 
@@ -283,7 +335,7 @@ router.post('/semesters', verifyToken, admin, async (req, res) => {
 router.post('/subjects', verifyToken, admin, async (req, res) => {
     const { category_id, board_id, university_id, class_id, stream_id, semester_id, degree_type_id, paper_stage_id, context_name } = req.body;
     try {
-        const subjects = await fetchAIStructure('Subjects', `Context: ${context_name}. Strictly original syllabus subject names only. No placeholders.`);
+        const subjects = await fetchAIStructure('Subjects', `Context: ${context_name}. Strictly original syllabus subject names only.No placeholders.`);
         const saved = [];
         let existingCount = 0;
 
@@ -297,8 +349,8 @@ router.post('/subjects', verifyToken, admin, async (req, res) => {
                 // Check if subject already exists
                 const existing = await query(
                     `SELECT id FROM subjects 
-                     WHERE board_id = $1 AND class_id = $2 
-                     AND (stream_id = $3 OR (stream_id IS NULL AND $3 IS NULL)) 
+                     WHERE board_id = $1 AND class_id = $2
+        AND(stream_id = $3 OR(stream_id IS NULL AND $3 IS NULL)) 
                      AND LOWER(name) = LOWER($4)`,
                     [board_id, class_id, stream_id, name]
                 );
@@ -310,10 +362,10 @@ router.post('/subjects', verifyToken, admin, async (req, res) => {
 
                 // Insert new subject
                 const result = await query(
-                    `INSERT INTO subjects (
-                        name, category_id, board_id, university_id, class_id, stream_id,
-                        semester_id, degree_type_id, paper_stage_id, is_active
-                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, FALSE) RETURNING *`,
+                    `INSERT INTO subjects(
+            name, category_id, board_id, university_id, class_id, stream_id,
+            semester_id, degree_type_id, paper_stage_id, is_active
+        ) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, FALSE) RETURNING * `,
                     [name, category_id, board_id, university_id, class_id, stream_id, semester_id, degree_type_id, paper_stage_id]
                 );
                 if (result.rows[0]) {

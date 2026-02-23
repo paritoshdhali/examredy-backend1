@@ -35,8 +35,16 @@ router.get('/boards/:state_id', (req, res) => safeFetch('SELECT id, name FROM bo
 // @route   GET /api/structure/classes
 router.get('/classes', (req, res) => safeFetch('SELECT id, name FROM classes WHERE is_active = TRUE ORDER BY id ASC', [], res));
 
-// @route   GET /api/structure/classes/:board_id (Alias or specific)
-router.get('/classes/:board_id', (req, res) => safeFetch('SELECT id, name FROM classes WHERE is_active = TRUE ORDER BY id ASC', [], res));
+// @route   GET /api/structure/classes/:board_id
+router.get('/classes/:board_id', (req, res) => {
+    safeFetch(`
+        SELECT c.id, c.name 
+        FROM board_classes bc 
+        JOIN classes c ON bc.class_id = c.id 
+        WHERE bc.board_id = $1 AND bc.is_active = TRUE 
+        ORDER BY c.id ASC
+    `, [req.params.board_id], res);
+});
 
 // @route   GET /api/structure/streams
 router.get('/streams', (req, res) => safeFetch('SELECT id, name FROM streams WHERE is_active = TRUE ORDER BY name ASC', [], res));
