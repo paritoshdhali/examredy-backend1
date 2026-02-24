@@ -211,17 +211,35 @@ Do NOT include markdown, code blocks, or any explanation. Return ONLY the JSON a
     if (!responseText) throw new Error('AI returned empty response. Check model configuration.');
 
     // Clean and parse
-    const cleanText = responseText.replace(/```json/gi, '').replace(/```/g, '').trim();
+    let cleanText = responseText.replace(/```json/gi, '').replace(/```/gi, '').trim();
+
+    // Aggressive Extraction: Try to find the first [ and last ]
+    const startIdx = cleanText.indexOf('[');
+    const endIdx = cleanText.lastIndexOf(']');
+    if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
+        cleanText = cleanText.substring(startIdx, endIdx + 1);
+    }
+
+    // Common Cleanup: Remove trailing commas before closing brackets
+    cleanText = cleanText.replace(/,(?=\s*[\]}])/g, '');
+    // Strip control characters (tabs, newlines inside strings can break JSON.parse)
+    cleanText = cleanText.replace(/[\x00-\x1F\x7F-\x9F]/g, (c) => (c === '\n' || c === '\r' || c === '\t') ? ' ' : '');
+
     let parsedData;
     try {
         parsedData = JSON.parse(cleanText);
-    } catch {
-        // Try extracting JSON from within the text
-        const match = cleanText.match(/(\[.*\]|\{.*\})/s);
-        if (match) {
-            parsedData = JSON.parse(match[1]);
-        } else {
-            throw new Error('AI response was not valid JSON. Try a different model.');
+    } catch (parseError) {
+        console.warn('[AI-STRUCT] Standard parse failed, attempting regex extraction. Error:', parseError.message);
+        try {
+            const match = cleanText.match(/(\[.*\]|\{.*\})/s);
+            if (match) {
+                parsedData = JSON.parse(match[1].replace(/,(?=\s*[\]}])/g, ''));
+            } else {
+                throw new Error('No JSON structure found in response');
+            }
+        } catch (e2) {
+            console.error('[AI-STRUCT-FATAL] Response text was:', responseText);
+            throw new Error(`AI response was not valid JSON. (Error: ${parseError.message}). Please try again or use a stronger model.`);
         }
     }
 
