@@ -5,9 +5,29 @@ const crypto = require('crypto');
 const { pool, query } = require('../db');
 const { verifyToken, admin } = require('../middleware/authMiddleware');
 
-const razorpay = new Razorpay({
-    key_id: process.env.RAZORPAY_KEY_ID || 'rzp_test_placeholder',
-    key_secret: process.env.RAZORPAY_KEY_SECRET || 'secret_placeholder'
+const getRazorpayInstance = async () => {
+    const res = await query("SELECT api_key, api_secret FROM payment_gateway_settings WHERE provider = 'razorpay' AND is_active = TRUE");
+
+    const key_id = res.rows[0]?.api_key || process.env.RAZORPAY_KEY_ID || 'rzp_test_placeholder';
+    const key_secret = res.rows[0]?.api_secret || process.env.RAZORPAY_KEY_SECRET || 'secret_placeholder';
+
+    return new Razorpay({
+        key_id,
+        key_secret
+    });
+};
+
+// @route   GET /api/subscription/config
+// @desc    Get public config (Razorpay ID)
+// @access  Public
+router.get('/config', async (req, res) => {
+    try {
+        const result = await query("SELECT api_key FROM payment_gateway_settings WHERE provider = 'razorpay' AND is_active = TRUE");
+        const key_id = result.rows[0]?.api_key || process.env.RAZORPAY_KEY_ID || 'rzp_test_placeholder';
+        res.json({ key_id });
+    } catch (error) {
+        res.status(500).json({ message: 'Server error' });
+    }
 });
 
 // @route   GET /api/subscription
@@ -59,16 +79,18 @@ router.post('/create-order', verifyToken, async (req, res) => {
         }
         const plan = planResult.rows[0];
 
+        const rzp = await getRazorpayInstance();
+
         const options = {
-            amount: plan.price * 100, // amount in smallest currency unit check (paise)
+            amount: Math.round(parseFloat(plan.price) * 100), // amount in smallest currency unit (paise)
             currency: "INR",
             receipt: `order_rcptid_${Date.now()}_${req.user.id}`
         };
 
-        const order = await razorpay.orders.create(options);
+        const order = await rzp.orders.create(options);
         res.json(order);
     } catch (error) {
-        console.error(error);
+        console.error('Order creation error:', error);
         res.status(500).json({ message: 'Server error' });
     }
 });
@@ -79,8 +101,12 @@ router.post('/create-order', verifyToken, async (req, res) => {
 router.post('/verify-payment', verifyToken, async (req, res) => {
     const { razorpay_order_id, razorpay_payment_id, razorpay_signature, planId } = req.body;
 
+    // Get dynamic secret
+    const gatewayRes = await query("SELECT api_secret FROM payment_gateway_settings WHERE provider = 'razorpay' AND is_active = TRUE");
+    const key_secret = gatewayRes.rows[0]?.api_secret || process.env.RAZORPAY_KEY_SECRET || 'secret_placeholder';
+
     // Verify signature
-    const hmac = crypto.createHmac('sha256', process.env.RAZORPAY_KEY_SECRET || 'secret_placeholder');
+    const hmac = crypto.createHmac('sha256', key_secret);
     hmac.update(razorpay_order_id + "|" + razorpay_payment_id);
     const generated_signature = hmac.digest('hex');
 
