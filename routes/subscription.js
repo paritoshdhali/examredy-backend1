@@ -81,8 +81,13 @@ router.post('/create-order', verifyToken, async (req, res) => {
 
         const rzp = await getRazorpayInstance();
 
+        // Ensure price is a number and convert to paise (cents) correctly
+        const amountPaise = Math.round(parseFloat(plan.price) * 100);
+
+        console.log(`Creating order for plan ${planId}, amount: ${amountPaise} paise`);
+
         const options = {
-            amount: Math.round(parseFloat(plan.price) * 100), // amount in smallest currency unit (paise)
+            amount: amountPaise,
             currency: "INR",
             receipt: `order_rcptid_${Date.now()}_${req.user.id}`
         };
@@ -90,8 +95,11 @@ router.post('/create-order', verifyToken, async (req, res) => {
         const order = await rzp.orders.create(options);
         res.json(order);
     } catch (error) {
-        console.error('Order creation error:', error);
-        res.status(500).json({ message: 'Server error' });
+        console.error('Order creation error details:', error);
+        res.status(500).json({
+            message: 'Failed to create payment order',
+            error: error.description || error.message
+        });
     }
 });
 
