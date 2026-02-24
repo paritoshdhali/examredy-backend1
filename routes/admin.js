@@ -644,23 +644,25 @@ router.get('/plans', async (req, res) => {
 
 router.post('/plans', async (req, res) => {
     try {
-        const { name, duration_hours, price, is_active, sessions_limit, referral_bonus_sessions } = req.body;
-        await query(
-            'INSERT INTO subscription_plans (name, duration_hours, price, is_active, sessions_limit, referral_bonus_sessions) VALUES ($1,$2,$3,$4,$5,$6)',
-            [name, parseInt(duration_hours), parseFloat(price), is_active !== undefined ? is_active : true, parseInt(sessions_limit) || 0, parseInt(referral_bonus_sessions) || 0]
+        const { name, price, is_active, sessions_limit, referral_bonus_sessions } = req.body;
+        const result = await query(
+            'INSERT INTO subscription_plans (name, duration_hours, price, is_active, sessions_limit, referral_bonus_sessions) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
+            [name, 1, price, is_active !== undefined ? is_active : true, parseInt(sessions_limit) || 0, parseInt(referral_bonus_sessions) || 0]
         );
-        res.json({ success: true, message: 'Plan added' });
-    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+        res.status(201).json(result.rows[0]);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
 });
 
 router.put('/plans/:id', async (req, res) => {
     try {
-        const { name, duration_hours, price, is_active, sessions_limit, referral_bonus_sessions } = req.body;
-        console.log(`[ADMIN-PLANS] Updating plan ${req.params.id}:`, { name, duration_hours, price, is_active, sessions_limit, referral_bonus_sessions });
+        const { name, price, is_active, sessions_limit, referral_bonus_sessions } = req.body;
+        console.log(`[ADMIN-PLANS] Updating plan ${req.params.id}:`, { name, price, is_active, sessions_limit, referral_bonus_sessions });
 
         const result = await query(
-            'UPDATE subscription_plans SET name=$1, duration_hours=$2, price=$3, is_active=$4, sessions_limit=$5, referral_bonus_sessions=$6 WHERE id=$7',
-            [name, parseInt(duration_hours) || 0, parseFloat(price) || 0, is_active === true, parseInt(sessions_limit) || 0, parseInt(referral_bonus_sessions) || 0, parseInt(req.params.id)]
+            'UPDATE subscription_plans SET name=$1, price=$2, is_active=$3, sessions_limit=$4, referral_bonus_sessions=$5 WHERE id=$6 RETURNING *',
+            [name, parseFloat(price) || 0, is_active === true, parseInt(sessions_limit) || 0, parseInt(referral_bonus_sessions) || 0, parseInt(req.params.id)]
         );
 
         if (result.rowCount === 0) {
