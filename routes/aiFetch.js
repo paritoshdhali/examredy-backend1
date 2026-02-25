@@ -170,7 +170,7 @@ router.post('/classes', verifyToken, admin, async (req, res) => {
 router.post('/universities', verifyToken, admin, async (req, res) => {
     const { state_id, state_name } = req.body;
     try {
-        const universities = await fetchAIStructure('Universities', `State of ${state_name}, India.Strictly provide original names only.`);
+        const universities = await fetchAIStructure('Universities', `State of ${state_name}, India.Strictly provide original names only.`, 30);
         const saved = [];
         let existingCount = 0;
 
@@ -293,7 +293,8 @@ router.post('/semesters', verifyToken, admin, async (req, res) => {
     try {
         const aiItems = await fetchAIStructure(
             'Terms',
-            `University: "${university_name}", Degree: "${degree_type_name}"(India).List the academic terms used(e.g., "Semester 1", "Semester 2", or "1st Year", "2nd Year").Return only the names of the terms.`
+            `University: "${university_name}", Degree: "${degree_type_name}"(India).List the academic terms used(e.g., "Semester 1", "Semester 2", or "1st Year", "2nd Year").Return only the names of the terms.`,
+            20
         );
 
         const resultSemesters = [];
@@ -335,7 +336,7 @@ router.post('/semesters', verifyToken, admin, async (req, res) => {
 router.post('/subjects', verifyToken, admin, async (req, res) => {
     const { category_id, board_id, university_id, class_id, stream_id, semester_id, degree_type_id, paper_stage_id, context_name } = req.body;
     try {
-        const subjects = await fetchAIStructure('Subjects', `Context: ${context_name}. Strictly original syllabus subject names only. No placeholders.`);
+        const subjects = await fetchAIStructure('Subjects', `Context: ${context_name}. Strictly original syllabus subject names only. No placeholders.`, 30);
         const saved = [];
         let existingCount = 0;
 
@@ -397,7 +398,7 @@ router.post('/subjects', verifyToken, admin, async (req, res) => {
 router.post('/chapters', verifyToken, admin, async (req, res) => {
     const { subject_id, subject_name } = req.body;
     try {
-        const chapters = await fetchAIStructure('Chapters', `Subject: ${subject_name}. Strictly original syllabus chapter names only.`);
+        const chapters = await fetchAIStructure('Chapters', `Subject: ${subject_name}. Strictly original syllabus chapter names only.`, 30);
         const saved = [];
         let existingCount = 0;
 

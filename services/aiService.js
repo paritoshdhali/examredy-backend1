@@ -129,7 +129,7 @@ const fallbackMock = (topic, count, language, errorMsg = '') => {
     }));
 };
 
-const fetchAIStructure = async (type, context) => {
+const fetchAIStructure = async (type, context, count = 10) => {
     const providerRes = await query('SELECT * FROM ai_providers WHERE is_active = TRUE LIMIT 1');
     if (providerRes.rows.length === 0 || !providerRes.rows[0].api_key) {
         throw new Error('No active AI provider found. Please configure one in Neural Hub.');
@@ -158,7 +158,7 @@ const fetchAIStructure = async (type, context) => {
         }
     }
 
-    const prompt = `List exactly 10 ${type} for: "${context}".
+    const prompt = `List exactly ${count} ${type} for: "${context}".
 Return ONLY a valid JSON array of objects with a "name" key.
 Example: [{"name":"Item 1"},{"name":"Item 2"}]
 Do NOT include markdown, code blocks, or any explanation. Return ONLY the JSON array.`;
