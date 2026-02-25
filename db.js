@@ -193,10 +193,11 @@ const initDB = async () => {
         try { await query(`ALTER TABLE universities ADD CONSTRAINT unique_university_state UNIQUE (state_id, name);`); } catch (e) { console.log('Constraint unique_university_state already exists'); }
         try { await query(`ALTER TABLE universities ADD COLUMN IF NOT EXISTS logo_url TEXT;`); } catch (e) { }
 
-        await query(`CREATE TABLE IF NOT EXISTS degree_types (id SERIAL PRIMARY KEY, name VARCHAR(500) NOT NULL, is_active BOOLEAN DEFAULT TRUE);`);
+        await query(`CREATE TABLE IF NOT EXISTS degree_types (id SERIAL PRIMARY KEY, name VARCHAR(500) NOT NULL, university_id INTEGER REFERENCES universities(id), is_active BOOLEAN DEFAULT TRUE);`);
+        try { await query(`ALTER TABLE degree_types ADD COLUMN IF NOT EXISTS university_id INTEGER REFERENCES universities(id);`); } catch (e) { }
         const defaultDegrees = ['B.A. Honours', 'B.Sc. Honours', 'B.Com. Honours', 'B.A. General/Pass', 'B.Sc. General/Pass', 'B.Com. General/Pass', 'B.E. / B.Tech', 'M.A.', 'M.Sc.', 'M.Com.'];
         for (const deg of defaultDegrees) {
-            await query(`INSERT INTO degree_types (name) SELECT $1::varchar WHERE NOT EXISTS (SELECT 1 FROM degree_types WHERE name = $1::varchar);`, [deg]);
+            await query(`INSERT INTO degree_types (name) SELECT $1::varchar WHERE NOT EXISTS (SELECT 1 FROM degree_types WHERE name = $1::varchar AND university_id IS NULL);`, [deg]);
         }
 
         await query(`CREATE TABLE IF NOT EXISTS semesters (id SERIAL PRIMARY KEY, name VARCHAR(50) NOT NULL, university_id INTEGER REFERENCES universities(id), is_active BOOLEAN DEFAULT TRUE);`);

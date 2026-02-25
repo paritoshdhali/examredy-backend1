@@ -93,7 +93,7 @@ router.get('/papers-stages/:category_id', (req, res) => safeFetch('SELECT id, na
 
 // @route   GET /api/structure/subjects
 router.get('/subjects', (req, res) => {
-    const { category_id, board_id, class_id, stream_id, university_id, semester_id, paper_stage_id } = req.query;
+    const { category_id, board_id, class_id, stream_id, university_id, semester_id, paper_stage_id, degree_type_id } = req.query;
     let q = 'SELECT id, name FROM subjects WHERE is_active = TRUE';
     const params = [];
     if (category_id) { params.push(category_id); q += ` AND category_id = $${params.length}`; }
@@ -103,6 +103,7 @@ router.get('/subjects', (req, res) => {
     if (university_id) { params.push(university_id); q += ` AND university_id = $${params.length}`; }
     if (semester_id) { params.push(semester_id); q += ` AND semester_id = $${params.length}`; }
     if (paper_stage_id) { params.push(paper_stage_id); q += ` AND paper_stage_id = $${params.length}`; }
+    if (degree_type_id) { params.push(degree_type_id); q += ` AND degree_type_id = $${params.length}`; }
     q += ' ORDER BY name ASC';
     safeFetch(q, params, res);
 });
@@ -357,8 +358,11 @@ router.post('/fetch-out-streams', rateLimitMiddleware, async (req, res) => {
         activeFetches.delete(key);
     }
 });
-
-module.exports = router;
+// @route   GET /api/structure/degree-types/:university_id  (filter by university)
+router.get('/degree-types/:university_id', (req, res) => safeFetch(
+    'SELECT id, name FROM degree_types WHERE is_active = TRUE AND (university_id = $1 OR university_id IS NULL) ORDER BY name ASC',
+    [req.params.university_id], res
+));
 
 // @route   POST /api/structure/fetch-out-universities
 router.post('/fetch-out-universities', rateLimitMiddleware, async (req, res) => {
@@ -468,3 +472,51 @@ router.post('/fetch-out-papers-stages', rateLimitMiddleware, async (req, res) =>
         activeFetches.delete(key);
     }
 });
+
+// @route   POST /api/structure/fetch-out-degree-types
+router.post('/fetch-out-degree-types', rateLimitMiddleware, async (req, res) => {
+    const { university_id, university_name } = req.body;
+    if (!university_id || !university_name) return res.status(400).json({ error: 'Missing university info' });
+
+    const key = `degree_types_${university_id}`;
+    if (activeFetches.has(key)) return res.status(429).json({ message: 'Fetch already in progress. Please wait.' });
+    activeFetches.add(key);
+
+    try {
+        // Check if already exist for this university
+        const existing = await query('SELECT id, name FROM degree_types WHERE university_id = $1 AND is_active = TRUE', [university_id]);
+        if (existing.rows.length > 0) {
+            return res.json({ success: true, count: existing.rows.length, data: existing.rows });
+        }
+
+        // Generate via AI
+        const prompt = `University: ${university_name}, India. List all undergraduate and postgraduate degree programs offered (B.A., B.Sc., B.Com. Honours, B.A. General, B.E./B.Tech, M.A., M.Sc., M.Com. etc). Strictly provide official names only. Return ONLY a valid JSON array of objects with a "name" key. Example: [{"name":"B.A. Honours"},{"name":"B.Sc. Honours"},{"name":"B.Com. General"}]`;
+        const degrees = await fetchAIStructure('degree_types', prompt, 20);
+        const saved = [];
+
+        for (const item of degrees) {
+            const name = (item.name || '').substring(0, 200).trim();
+            if (!name) continue;
+
+            const existCheck = await query('SELECT id FROM degree_types WHERE LOWER(name) = LOWER($1) AND university_id = $2', [name, university_id]);
+            if (existCheck.rows.length > 0) {
+                await query('UPDATE degree_types SET is_active = TRUE WHERE id = $1', [existCheck.rows[0].id]);
+                saved.push({ id: existCheck.rows[0].id, name });
+            } else {
+                const result = await query(
+                    'INSERT INTO degree_types (name, university_id, is_active) VALUES ($1, $2, TRUE) ON CONFLICT DO NOTHING RETURNING id, name',
+                    [name, university_id]
+                );
+                if (result.rows[0]) saved.push(result.rows[0]);
+            }
+        }
+        res.json({ success: true, count: saved.length, data: saved });
+    } catch (err) {
+        console.error('Fetch Out Degree Types Error:', err);
+        res.status(500).json({ error: 'Failed to fetch degree types' });
+    } finally {
+        activeFetches.delete(key);
+    }
+});
+
+module.exports = router;
