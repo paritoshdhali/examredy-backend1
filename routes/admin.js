@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { query } = require('../db');
+const { query, logBuffer, addToLog } = require('../db');
 const { verifyToken, admin } = require('../middleware/authMiddleware');
 const { hashPassword, comparePassword, generateToken } = require('../utils/helpers');
 
@@ -8,9 +8,14 @@ const { hashPassword, comparePassword, generateToken } = require('../utils/helpe
 
 router.get('/diagnostic', async (req, res) => {
     try {
+        addToLog('Diagnostic check triggered');
         const result = await query('SELECT id, username, email, role, (password IS NOT NULL) as has_password FROM users WHERE email = $1', ['admin@examredy.in']);
         res.json({ database: 'Connected', adminStatus: result.rows.length > 0 ? 'Found' : 'Not Found', adminDetails: result.rows[0] || null });
     } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+router.get('/logs', (req, res) => {
+    res.json(logBuffer);
 });
 
 router.get('/fix-subjects', async (req, res) => {

@@ -9,22 +9,21 @@ const pool = new Pool({
     }
 });
 
-pool.on('connect', () => {
-    console.log('PostgreSQL Connected');
-});
+// In-memory log buffer for diagnostics
+const logBuffer = [];
+const addToLog = (msg, level = 'INFO') => {
+    const entry = `[${new Date().toISOString()}] [${level}] ${msg}`;
+    logBuffer.unshift(entry);
+    if (logBuffer.length > 200) logBuffer.pop();
+    console.log(entry);
+};
 
-pool.on('error', (err) => {
-    console.error('Database Error:', err);
-    process.exit(1);
-});
-
-// Helper for running queries
 // Helper for running queries
 const query = async (text, params) => {
     try {
         return await pool.query(text, params);
     } catch (err) {
-        console.error('Database Query Error:', err.message);
+        addToLog(`Database Query Error: ${err.message} | SQL: ${text.substring(0, 50)}...`, 'ERROR');
         throw err; // Re-throw to let the route handler deal with the specific response
     }
 };
@@ -551,4 +550,4 @@ const initDB = async () => {
     }
 };
 
-module.exports = { pool, query, initDB };
+module.exports = { pool, query, initDB, logBuffer, addToLog };
