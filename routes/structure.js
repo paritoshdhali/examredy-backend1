@@ -229,7 +229,7 @@ router.post('/fetch-out-subjects', rateLimitMiddleware, async (req, res) => {
 
 // @route   POST /api/structure/fetch-out-chapters
 router.post('/fetch-out-chapters', rateLimitMiddleware, async (req, res) => {
-    const { subject_id, subject_name, board_name, class_name, university_name, semester_name, paper_stage_name, category_name } = req.body;
+    const { subject_id, subject_name, board_name, class_name, university_name, degree_type_name, semester_name, paper_stage_name, category_name } = req.body;
     if (!subject_id || !subject_name) return res.status(400).json({ error: 'Missing subject info' });
 
     let context_name = '';
