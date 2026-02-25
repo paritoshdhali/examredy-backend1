@@ -420,6 +420,21 @@ Rules:
     return await fetchAIStructure('streams', prompt, 10);
 };
 
+const generateUniversities = async (stateName) => {
+    const prompt = `State of ${stateName}, India. Strictly provide original names only. Return ONLY a valid JSON array of objects with a "name" key. Example: [{"name":"University of Calcutta"},{"name":"Jadavpur University"}]`;
+    return await fetchAIStructure('universities', prompt, 30);
+};
+
+const generateSemesters = async (universityName, degreeTypeName = "General Curriculum") => {
+    const prompt = `University: "${universityName}", Degree: "${degreeTypeName}" (India). List the academic terms used (e.g., "Semester 1", "Semester 2", or "1st Year", "2nd Year"). Return ONLY a valid JSON array of objects with a "name" key. Example: [{"name":"Semester 1"},{"name":"Semester 2"}]`;
+    return await fetchAIStructure('semesters', prompt, 20);
+};
+
+const generatePapersStages = async (categoryName) => {
+    const prompt = `Exam Category: ${categoryName}. Strictly original names. Return ONLY a valid JSON array of objects with a "name" key. Example: [{"name":"Prelims"},{"name":"Mains"}]`;
+    return await fetchAIStructure('papers stages', prompt, 30);
+};
+
 module.exports = {
     generateMCQInitial,
     fetchAIStructure,
@@ -427,5 +442,8 @@ module.exports = {
     generateSchoolClasses,
     generateSchoolStreams,
     generateSchoolSubjects,
-    generateSchoolChapters
+    generateSchoolChapters,
+    generateUniversities,
+    generateSemesters,
+    generatePapersStages
 };

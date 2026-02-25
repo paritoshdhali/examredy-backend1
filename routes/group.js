@@ -66,16 +66,21 @@ router.get('/:code/status', verifyToken, async (req, res) => {
         `, [code]);
 
         let questions = [];
-        if (session.status === 'active' && session.mcq_ids) {
-            // Fetch the questions for the session
-            const ids = typeof session.mcq_ids === 'string' ? JSON.parse(session.mcq_ids) : session.mcq_ids;
-            const mcqRes = await query(`
-                SELECT id, question, options, correct_option, explanation 
-                FROM mcq_pool 
-                WHERE id = ANY($1)
-            `, [ids]);
-            // Sort to match mcq_ids order
-            questions = ids.map(id => mcqRes.rows.find(r => r.id === id)).filter(Boolean);
+        if (session.status === 'active') {
+            if (session.mcq_data) {
+                // New logic: Use raw JSON data
+                questions = typeof session.mcq_data === 'string' ? JSON.parse(session.mcq_data) : session.mcq_data;
+            } else if (session.mcq_ids) {
+                // Backward compatibility: Fetch from DB
+                const ids = typeof session.mcq_ids === 'string' ? JSON.parse(session.mcq_ids) : session.mcq_ids;
+                const mcqRes = await query(`
+                    SELECT id, question, options, correct_option, explanation 
+                    FROM mcq_pool 
+                    WHERE id = ANY($1)
+                `, [ids]);
+                // Sort to match mcq_ids order
+                questions = ids.map(id => mcqRes.rows.find(r => r.id === id)).filter(Boolean);
+            }
         }
 
         res.json({
@@ -226,44 +231,23 @@ router.post('/start', verifyToken, async (req, res) => {
             return res.status(500).json({ message: 'Failed to generate questions. Please try again.' });
         }
 
-        // 3. Save to mcq_pool and get IDs
-        const mcqIds = [];
-        const finalQuestions = [];
+        // 3. Prepare synthetic MCQs without saving to global database
+        const finalQuestions = generatedMcqs.map((q, idx) => ({
+            id: `live_${Date.now()}_${idx}`,
+            question: q.question,
+            options: q.options,
+            correct_option: q.correct_option,
+            explanation: q.explanation
+        }));
 
-        for (const mcq of generatedMcqs) {
-            const normalizedQuestion = mcq.question.trim().toLowerCase().replace(/\s+/g, ' ');
-            const hash = crypto.createHash('sha256').update(normalizedQuestion).digest('hex');
-
-            try {
-                // Check if already exists by hash
-                const existing = await query('SELECT id, question, options, correct_option, explanation FROM mcq_pool WHERE question_hash = $1', [hash]);
-
-                if (existing.rows.length > 0) {
-                    mcqIds.push(existing.rows[0].id);
-                    finalQuestions.push(existing.rows[0]);
-                } else {
-                    const result = await query(
-                        `INSERT INTO mcq_pool (question, options, correct_option, explanation, category_id, subject, chapter, is_approved, question_hash) 
-                         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) 
-                         RETURNING id, question, options, correct_option, explanation`,
-                        [mcq.question, JSON.stringify(mcq.options), mcq.correct_option, mcq.explanation, categoryId, topicParts[topicParts.length - 2] || '', topicParts[topicParts.length - 1] || '', true, hash]
-                    );
-                    mcqIds.push(result.rows[0].id);
-                    finalQuestions.push(result.rows[0]);
-                }
-            } catch (err) {
-                console.error('Error saving group MCQ:', err.message);
-            }
+        if (finalQuestions.length === 0) {
+            return res.status(500).json({ message: 'Failed to generate valid questions.' });
         }
 
-        if (mcqIds.length === 0) {
-            return res.status(500).json({ message: 'Database error saving questions.' });
-        }
-
-        // 4. Update session
+        // 4. Update session with raw MCQ data
         await query(
-            'UPDATE group_sessions SET status = \'active\', category_id = $1, mcq_ids = $2 WHERE id = $3',
-            [categoryId, JSON.stringify(mcqIds), code]
+            'UPDATE group_sessions SET status = \'active\', category_id = $1, mcq_data = $2 WHERE id = $3',
+            [categoryId, JSON.stringify(finalQuestions), code]
         );
 
         res.json({ message: 'Battle started', questions: finalQuestions });
