@@ -158,10 +158,12 @@ const fetchAIStructure = async (type, context, count = 10) => {
         }
     }
 
-    const prompt = `List exactly ${count} ${type} for: "${context}".
+    const finalContext = context.includes('Return ONLY a valid JSON array') ? context : `List exactly ${count} ${type} for: "${context}".
 Return ONLY a valid JSON array of objects with a "name" key.
 Example: [{"name":"Item 1"},{"name":"Item 2"}]
 Do NOT include markdown, code blocks, or any explanation. Return ONLY the JSON array.`;
+
+    const prompt = finalContext;
 
     let response;
     try {
@@ -374,7 +376,7 @@ Return ONLY JSON. NO MARKDOWN.`;
 };
 
 const generateSchoolChapters = async (subjectName, boardName, className) => {
-    const prompt = `You are an Indian school curriculum expert.
+    const prompt = `You are an Indian school curriculum expert. 
 List ALL official textbook chapters for:
 - Subject: ${subjectName}
 - Board: ${boardName}  
@@ -384,11 +386,12 @@ List ALL official textbook chapters for:
 Return ONLY a valid JSON array of objects with a "name" key.
 Example: [{"name":"Real Numbers"},{"name":"Polynomials"},{"name":"Triangles"}]
 Rules:
-- Use exact chapter names from the official NCERT or state board textbook
-- Do NOT use placeholders like "Chapter 1"
-- Include all major chapters (8-30 expected)
-Return ONLY JSON. NO MARKDOWN.`;
-    return await fetchAIStructure('chapters', prompt, 30);
+- Use exact chapter names from the official NCERT or state board textbook.
+- DO NOT repeat names. Each chapter name must be unique.
+- DO NOT use placeholders like "Chapter 1".
+- Return 8 to 25 real chapters maximum.
+- Return ONLY JSON. NO MARKDOWN. NO explanation.`;
+    return await fetchAIStructure('chapters', prompt, 25);
 };
 
 const generateSchoolClasses = async (boardName) => {

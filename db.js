@@ -426,6 +426,30 @@ const initDB = async () => {
             }
         }
 
+        // --- Class Name Unique Constraint Repair ---
+        try {
+            console.log('Synchronizing classes table unique constraint...');
+            // Delete duplicates if any
+            await query(`DELETE FROM classes a USING classes b WHERE a.id < b.id AND LOWER(a.name) = LOWER(b.name);`);
+            // Add unique constraint if not exists
+            await query(`ALTER TABLE classes ADD CONSTRAINT unique_class_name UNIQUE (name);`);
+            console.log('✅ Class unique constraint enforced.');
+        } catch (e) {
+            // Fails if exists or other issues, usually fine
+        }
+
+        // --- Chapter Unique Constraint Repair ---
+        try {
+            console.log('Synchronizing chapters table unique constraint...');
+            // Delete duplicates if any (same subject and name)
+            await query(`DELETE FROM chapters a USING chapters b WHERE a.id < b.id AND a.subject_id = b.subject_id AND LOWER(a.name) = LOWER(b.name);`);
+            // Add unique constraint if not exists
+            await query(`ALTER TABLE chapters ADD CONSTRAINT unique_chapter_per_subject UNIQUE (subject_id, name);`);
+            console.log('✅ Chapter unique constraint enforced.');
+        } catch (e) {
+            // Fails if exists, which is fine
+        }
+
         // SEO and Site Config (Requirement 8)
         const siteDefaults = {
             'SITE_TITLE': 'ExamRedy - AI MCQ Practice',
@@ -564,4 +588,5 @@ const initDB = async () => {
     }
 };
 
+// [AI-FETCH-DEBUG] Manual export if needed
 module.exports = { pool, query, initDB, logBuffer, addToLog };
