@@ -729,22 +729,6 @@ router.get('/referrals', async (req, res) => {
     res.json(result.rows);
 });
 
-// --- 10. LEGAL PAGES ---
-
-router.get('/legal-pages', async (req, res) => {
-    const result = await query('SELECT * FROM legal_pages ORDER BY title ASC');
-    res.json(result.rows);
-});
-
-router.put('/legal-pages/:id', async (req, res) => {
-    const { title, content, is_active } = req.body;
-    await query(
-        'UPDATE legal_pages SET title=$1, content=$2, is_active=$3, updated_at=CURRENT_TIMESTAMP WHERE id=$4',
-        [title, content, is_active, req.params.id]
-    );
-    res.json({ message: 'Legal page updated' });
-});
-
 router.put('/referrals/:id/reward', async (req, res) => {
     const { status, reward_given } = req.body;
     await query('UPDATE referrals SET status = $1, reward_given = $2 WHERE id = $3', [status, reward_given, req.params.id]);
@@ -816,6 +800,37 @@ router.put('/settings/ads', async (req, res) => {
             }
         }
         res.json({ success: true, message: 'Ad configuration updated' });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// --- 11.5 ADS SETTINGS ---
+router.get('/ads', async (req, res) => {
+    try {
+        const result = await query('SELECT * FROM ads_settings ORDER BY platform DESC, ad_type ASC');
+        res.json(result.rows);
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+router.post('/ads', async (req, res) => {
+    try {
+        const { platform, ad_type, ad_unit_id, is_active } = req.body;
+        // Upsert logic: Update if exists, otherwise insert
+        await query(`
+            INSERT INTO ads_settings (platform, ad_type, ad_unit_id, is_active, updated_at) 
+            VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
+            ON CONFLICT (platform, ad_type) 
+            DO UPDATE SET ad_unit_id = EXCLUDED.ad_unit_id, is_active = EXCLUDED.is_active, updated_at = CURRENT_TIMESTAMP
+        `, [platform, ad_type, ad_unit_id, is_active !== undefined ? is_active : true]);
+
+        res.json({ success: true, message: 'Ad configuration updated' });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+router.put('/ads/:id/status', async (req, res) => {
+    try {
+        const { is_active } = req.body;
+        await query('UPDATE ads_settings SET is_active = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [is_active, req.params.id]);
+        res.json({ success: true, message: 'Ad status toggled' });
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

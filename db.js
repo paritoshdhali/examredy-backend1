@@ -265,7 +265,7 @@ const initDB = async () => {
         const tablesToMigrate = [
             'categories', 'boards', 'classes', 'streams', 'board_classes',
             'universities', 'degree_types', 'semesters', 'papers_stages',
-            'subjects', 'chapters'
+            'subjects', 'chapters', 'legal_pages'
         ];
         for (const tableName of tablesToMigrate) {
             try {
@@ -454,6 +454,20 @@ const initDB = async () => {
             error_message TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );`);
+
+        // Ads Settings (Dynamic Ads Control)
+        await query(`CREATE TABLE IF NOT EXISTS ads_settings (
+            id SERIAL PRIMARY KEY,
+            platform VARCHAR(20) NOT NULL,
+            ad_type VARCHAR(50) NOT NULL,
+            ad_unit_id TEXT NOT NULL,
+            is_active BOOLEAN DEFAULT TRUE,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            CONSTRAINT unique_ad_type_per_platform UNIQUE (platform, ad_type)
+        );`);
+        await query(`CREATE INDEX IF NOT EXISTS idx_ads_platform ON ads_settings(platform);`);
+        await query(`CREATE INDEX IF NOT EXISTS idx_ads_active ON ads_settings(is_active);`);
 
         // MCQ Pool
         await query(`

@@ -13,15 +13,21 @@ const app = express();
 // Required for Railway/Reverse Proxy Rate Limiting
 app.set('trust proxy', 1);
 
-// Security Middleware
-app.use(helmet());
-
+// 1. CORS FIRST (Essential for preflight OPTIONS checks)
 app.use(cors({
-    origin: true, // Dynamically allow any origin that makes the request
+    origin: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true,
-    maxAge: 86400 // Cache preflight for 24 hours
+    maxAge: 86400
+}));
+
+// Handle preflight for all routes
+app.options('*', cors());
+
+// Security Middleware
+app.use(helmet({
+    crossOriginResourcePolicy: { policy: "cross-origin" }
 }));
 
 // Rate Limiting
