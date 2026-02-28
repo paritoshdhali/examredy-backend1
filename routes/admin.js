@@ -99,18 +99,29 @@ router.put('/users/:id/role', async (req, res) => {
 
 router.put('/users/:id/subscription', async (req, res) => {
     const { action, hours, expiry, sessions } = req.body;
-    if (expiry) {
-        await query('UPDATE users SET premium_expiry = $1, is_premium = $2 WHERE id = $3', [expiry, new Date(expiry) > new Date(), req.params.id]);
-    } else if (action === 'extend' || action === 'reduce') {
-        const interval = `${hours || 24} hours`;
-        const operator = action === 'extend' ? '+' : '-';
-        await query(`UPDATE users SET premium_expiry = COALESCE(premium_expiry, CURRENT_TIMESTAMP) ${operator} $1::interval, is_premium = TRUE WHERE id = $2`, [interval, req.params.id]);
-    } else if (action === 'sessions') {
-        await query('UPDATE users SET sessions_left = sessions_left + $1, is_premium = TRUE WHERE id = $2', [parseInt(sessions) || 0, req.params.id]);
-    } else if (action === 'cancel') {
-        await query('UPDATE users SET is_premium = FALSE, premium_expiry = NULL WHERE id = $1', [req.params.id]);
+
+    try {
+        if (action === 'set_sessions') {
+            const count = parseInt(sessions);
+            await query('UPDATE users SET sessions_left = $1, is_premium = $2 WHERE id = $3',
+                [count, count !== 0, req.params.id]);
+        } else if (expiry) {
+            await query('UPDATE users SET premium_expiry = $1, is_premium = $2 WHERE id = $3', [expiry, new Date(expiry) > new Date(), req.params.id]);
+        } else if (action === 'extend' || action === 'reduce') {
+            const interval = `${hours || 24} hours`;
+            const operator = action === 'extend' ? '+' : '-';
+            await query(`UPDATE users SET premium_expiry = COALESCE(premium_expiry, CURRENT_TIMESTAMP) ${operator} $1::interval, is_premium = TRUE WHERE id = $2`, [interval, req.params.id]);
+        } else if (action === 'sessions') {
+            const count = parseInt(sessions) || 0;
+            // Handle adding to existing sessions, but if it was unlimited (-1), keep it unlimited unless subtracting
+            await query('UPDATE users SET sessions_left = CASE WHEN sessions_left = -1 THEN -1 ELSE sessions_left + $1 END, is_premium = TRUE WHERE id = $2', [count, req.params.id]);
+        } else if (action === 'cancel') {
+            await query('UPDATE users SET is_premium = FALSE, premium_expiry = NULL, sessions_left = 0 WHERE id = $1', [req.params.id]);
+        }
+        res.json({ message: 'Subscription updated successfully' });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
     }
-    res.json({ message: 'Subscription updated' });
 });
 
 router.post('/users/:id/reset-usage', async (req, res) => {
