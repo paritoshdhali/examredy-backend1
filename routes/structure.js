@@ -44,7 +44,6 @@ const safeFetch = async (q, params, res) => {
 };
 
 // Helper to translate an array of {id, name} objects into the target language
-const { fetchAIStructure } = require('../services/aiService');
 const axios = require('axios');
 const translateNames = async (rows, language) => {
     if (!language || language === 'English' || rows.length === 0) return rows;
