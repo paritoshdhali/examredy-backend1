@@ -126,12 +126,54 @@ router.get('/classes/:board_id', async (req, res) => {
 });
 
 // @route   GET /api/structure/streams
+// Auto-fetch from AI if DB is empty for this board/class
 router.get('/streams', async (req, res) => {
     try {
-        const result = await query('SELECT id, name FROM streams WHERE is_active = TRUE ORDER BY name ASC');
-        const rows = await translateNames(result.rows, req.query.language);
+        const { board_id, class_id, language } = req.query;
+
+        // 1. Check DB first
+        let result = await query('SELECT id, name FROM streams WHERE is_active = TRUE ORDER BY name ASC');
+
+        // 2. If empty AND we have context (board + class), auto-fetch from AI and save
+        if (result.rows.length === 0 && board_id && class_id) {
+            try {
+                // Get board name and class name for AI context
+                const boardRes = await query('SELECT name FROM boards WHERE id = $1', [board_id]);
+                const classRes = await query('SELECT name FROM classes WHERE id = $1', [class_id]);
+                const boardName = boardRes.rows[0]?.name || 'CBSE';
+                const className = classRes.rows[0]?.name || 'Class 11';
+
+                const fetched = await generateSchoolStreams(boardName, className);
+
+                // Save to DB
+                for (const stream of fetched) {
+                    if (stream.name && stream.name.length > 0) {
+                        await query(
+                            'INSERT INTO streams (name, is_active) VALUES ($1, TRUE) ON CONFLICT (name) DO NOTHING',
+                            [stream.name]
+                        );
+                    }
+                }
+
+                // Re-fetch from DB after save
+                result = await query('SELECT id, name FROM streams WHERE is_active = TRUE ORDER BY name ASC');
+            } catch (aiErr) {
+                console.error('Auto-fetch streams failed:', aiErr.message);
+                // Fallback: insert standard Indian streams
+                const defaults = ['Science', 'Commerce', 'Arts / Humanities', 'Vocational'];
+                for (const name of defaults) {
+                    await query('INSERT INTO streams (name, is_active) VALUES ($1, TRUE) ON CONFLICT (name) DO NOTHING', [name]);
+                }
+                result = await query('SELECT id, name FROM streams WHERE is_active = TRUE ORDER BY name ASC');
+            }
+        }
+
+        const rows = await translateNames(result.rows, language);
         res.json(rows);
-    } catch (e) { res.status(500).json({ message: 'Server error' }); }
+    } catch (e) {
+        console.error('Streams route error:', e.message);
+        res.status(500).json({ message: 'Server error' });
+    }
 });
 
 // @route   GET /api/structure/universities/:state_id
