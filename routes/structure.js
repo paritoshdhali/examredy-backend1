@@ -43,6 +43,52 @@ const safeFetch = async (q, params, res) => {
     }
 };
 
+// Helper to translate an array of {id, name} objects into the target language
+const { fetchAIStructure } = require('../services/aiService');
+const axios = require('axios');
+const translateNames = async (rows, language) => {
+    if (!language || language === 'English' || rows.length === 0) return rows;
+    try {
+        const providerRes = await query('SELECT * FROM ai_providers WHERE is_active = TRUE LIMIT 1');
+        if (!providerRes.rows[0]?.api_key) return rows;
+        const { api_key, model_name, base_url } = providerRes.rows[0];
+        const isOR = api_key?.startsWith('sk-or-');
+        const isGemini = api_key?.startsWith('AIza');
+        const effectiveBase = (isOR && !base_url?.includes('openrouter.ai'))
+            ? 'https://openrouter.ai/api/v1' : base_url;
+        const isOpenAI = !isGemini;
+
+        const names = rows.map(r => r.name).join('\n');
+        const prompt = `Translate these educational terms to ${language}. Return ONLY the translations, one per line, same order:\n\n${names}`;
+
+        let response;
+        if (isOpenAI) {
+            response = await axios.post(`${effectiveBase}/chat/completions`.replace(/([^:])\/\//g, '$1/'), {
+                model: model_name,
+                messages: [{ role: 'user', content: prompt }],
+                temperature: 0.1,
+                max_tokens: 500
+            }, { headers: { 'Authorization': `Bearer ${api_key}`, 'Content-Type': 'application/json' }, timeout: 15000 });
+        } else {
+            response = await axios.post(`${effectiveBase}/${model_name}:generateContent?key=${api_key}`, {
+                contents: [{ parts: [{ text: prompt }] }],
+                generationConfig: { temperature: 0.1 }
+            }, { timeout: 15000 });
+        }
+
+        const text = isOpenAI
+            ? response.data?.choices?.[0]?.message?.content
+            : response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+
+        if (!text) return rows;
+        const lines = text.trim().split('\n').map(l => l.trim()).filter(Boolean);
+        return rows.map((r, i) => ({ ...r, name: lines[i] || r.name }));
+    } catch (e) {
+        console.error('Translation failed, returning original:', e.message);
+        return rows;
+    }
+};
+
 // @route   GET /api/structure
 // @desc    Structure health check
 // @access  Public
@@ -60,24 +106,34 @@ router.get('/states', (req, res) => safeFetch('SELECT id, name FROM states ORDER
 router.get('/languages', (req, res) => safeFetch('SELECT id, name FROM languages ORDER BY name ASC', [], res));
 
 // @route   GET /api/structure/boards/:state_id
-router.get('/boards/:state_id', (req, res) => safeFetch('SELECT id, name FROM boards WHERE state_id = $1 AND is_active = TRUE ORDER BY name ASC', [req.params.state_id], res));
+router.get('/boards/:state_id', async (req, res) => {
+    try {
+        const result = await query('SELECT id, name FROM boards WHERE state_id = $1 AND is_active = TRUE ORDER BY name ASC', [req.params.state_id]);
+        const rows = await translateNames(result.rows, req.query.language);
+        res.json(rows);
+    } catch (e) { res.status(500).json({ message: 'Server error' }); }
+});
 
 // @route   GET /api/structure/classes
 router.get('/classes', (req, res) => safeFetch('SELECT id, name FROM classes WHERE is_active = TRUE ORDER BY id ASC', [], res));
 
 // @route   GET /api/structure/classes/:board_id
-router.get('/classes/:board_id', (req, res) => {
-    safeFetch(`
-        SELECT c.id, c.name 
-        FROM board_classes bc 
-        JOIN classes c ON bc.class_id = c.id 
-        WHERE bc.board_id = $1 AND bc.is_active = TRUE 
-        ORDER BY c.id ASC
-    `, [req.params.board_id], res);
+router.get('/classes/:board_id', async (req, res) => {
+    try {
+        const result = await query(`SELECT c.id, c.name FROM board_classes bc JOIN classes c ON bc.class_id = c.id WHERE bc.board_id = $1 AND bc.is_active = TRUE ORDER BY c.id ASC`, [req.params.board_id]);
+        const rows = await translateNames(result.rows, req.query.language);
+        res.json(rows);
+    } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
 
 // @route   GET /api/structure/streams
-router.get('/streams', (req, res) => safeFetch('SELECT id, name FROM streams WHERE is_active = TRUE ORDER BY name ASC', [], res));
+router.get('/streams', async (req, res) => {
+    try {
+        const result = await query('SELECT id, name FROM streams WHERE is_active = TRUE ORDER BY name ASC');
+        const rows = await translateNames(result.rows, req.query.language);
+        res.json(rows);
+    } catch (e) { res.status(500).json({ message: 'Server error' }); }
+});
 
 // @route   GET /api/structure/universities/:state_id
 router.get('/universities/:state_id', (req, res) => safeFetch('SELECT id, name FROM universities WHERE state_id = $1 AND is_active = TRUE ORDER BY name ASC', [req.params.state_id], res));
@@ -92,8 +148,8 @@ router.get('/semesters', (req, res) => safeFetch('SELECT id, name FROM semesters
 router.get('/papers-stages/:category_id', (req, res) => safeFetch('SELECT id, name FROM papers_stages WHERE category_id = $1 AND is_active = TRUE ORDER BY name ASC', [req.params.category_id], res));
 
 // @route   GET /api/structure/subjects
-router.get('/subjects', (req, res) => {
-    const { category_id, board_id, class_id, stream_id, university_id, semester_id, paper_stage_id, degree_type_id } = req.query;
+router.get('/subjects', async (req, res) => {
+    const { category_id, board_id, class_id, stream_id, university_id, semester_id, paper_stage_id, degree_type_id, language } = req.query;
     let q = 'SELECT id, name FROM subjects WHERE is_active = TRUE';
     const params = [];
     if (category_id) { params.push(category_id); q += ` AND category_id = $${params.length}`; }
@@ -105,14 +161,24 @@ router.get('/subjects', (req, res) => {
     if (paper_stage_id) { params.push(paper_stage_id); q += ` AND paper_stage_id = $${params.length}`; }
     if (degree_type_id) { params.push(degree_type_id); q += ` AND degree_type_id = $${params.length}`; }
     q += ' ORDER BY name ASC';
-    safeFetch(q, params, res);
+    try {
+        const result = await query(q, params);
+        const rows = await translateNames(result.rows, language);
+        res.json(rows);
+    } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
 
 // @route   GET /api/structure/subjects/:class_id (Direct path)
 router.get('/subjects/:class_id', (req, res) => safeFetch('SELECT id, name FROM subjects WHERE class_id = $1 AND is_active = TRUE ORDER BY name ASC', [req.params.class_id], res));
 
 // @route   GET /api/structure/chapters/:subject_id
-router.get('/chapters/:subject_id', (req, res) => safeFetch('SELECT id, name FROM chapters WHERE subject_id = $1 AND is_active = TRUE ORDER BY name ASC', [req.params.subject_id], res));
+router.get('/chapters/:subject_id', async (req, res) => {
+    try {
+        const result = await query('SELECT id, name FROM chapters WHERE subject_id = $1 AND is_active = TRUE ORDER BY name ASC', [req.params.subject_id]);
+        const rows = await translateNames(result.rows, req.query.language);
+        res.json(rows);
+    } catch (e) { res.status(500).json({ message: 'Server error' }); }
+});
 
 // @route   POST /api/structure/fetch-out-boards
 // @desc    User-triggered AI fetch for boards
