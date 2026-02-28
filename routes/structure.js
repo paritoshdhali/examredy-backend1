@@ -44,12 +44,37 @@ const safeFetch = async (q, params, res) => {
 };
 
 // Helper to translate an array of {id, name} objects into the target language
+// Uses DB cache (name_translations) — AI is called only on first request per term per language
 const axios = require('axios');
-const translateNames = async (rows, language) => {
+const translateNames = async (rows, language, tableName = 'unknown') => {
     if (!language || language === 'English' || rows.length === 0) return rows;
     try {
+        const result = [...rows];
+
+        // 1. Check DB cache for all items at once
+        const ids = rows.map(r => r.id).filter(Boolean);
+        let cached = {};
+        if (ids.length > 0) {
+            const cacheRes = await query(
+                `SELECT item_id, translated_name FROM name_translations WHERE table_name = $1 AND language = $2 AND item_id = ANY($3)`,
+                [tableName, language, ids]
+            );
+            cacheRes.rows.forEach(r => { cached[r.item_id] = r.translated_name; });
+        }
+
+        // 2. Find items not in cache
+        const missing = rows.filter(r => r.id && !cached[r.id]);
+
+        // 3. If all cached, return immediately (no AI call)
+        if (missing.length === 0) {
+            return result.map(r => ({ ...r, name: cached[r.id] || r.name }));
+        }
+
+        // 4. Translate missing items via AI
         const providerRes = await query('SELECT * FROM ai_providers WHERE is_active = TRUE LIMIT 1');
-        if (!providerRes.rows[0]?.api_key) return rows;
+        if (!providerRes.rows[0]?.api_key) {
+            return result.map(r => ({ ...r, name: cached[r.id] || r.name }));
+        }
         const { api_key, model_name, base_url } = providerRes.rows[0];
         const isOR = api_key?.startsWith('sk-or-');
         const isGemini = api_key?.startsWith('AIza');
@@ -57,8 +82,8 @@ const translateNames = async (rows, language) => {
             ? 'https://openrouter.ai/api/v1' : base_url;
         const isOpenAI = !isGemini;
 
-        const names = rows.map(r => r.name).join('\n');
-        const prompt = `Translate these educational terms to ${language}. Return ONLY the translations, one per line, same order:\n\n${names}`;
+        const names = missing.map(r => r.name).join('\n');
+        const prompt = `Translate these educational terms to ${language}. Return ONLY the translations, one per line, same order, in ${language} script:\n\n${names}`;
 
         let response;
         if (isOpenAI) {
@@ -79,9 +104,25 @@ const translateNames = async (rows, language) => {
             ? response.data?.choices?.[0]?.message?.content
             : response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
 
-        if (!text) return rows;
-        const lines = text.trim().split('\n').map(l => l.trim()).filter(Boolean);
-        return rows.map((r, i) => ({ ...r, name: lines[i] || r.name }));
+        if (text) {
+            const lines = text.trim().split('\n').map(l => l.trim()).filter(Boolean);
+            // Save to cache and build lookup for missing items
+            for (let i = 0; i < missing.length; i++) {
+                const translated = lines[i] || missing[i].name;
+                if (missing[i].id) {
+                    cached[missing[i].id] = translated;
+                    // Save to DB cache (fire-and-forget, don't block response)
+                    query(
+                        `INSERT INTO name_translations (table_name, item_id, language, translated_name)
+                         VALUES ($1, $2, $3, $4)
+                         ON CONFLICT (table_name, item_id, language) DO UPDATE SET translated_name = $4`,
+                        [tableName, missing[i].id, language, translated]
+                    ).catch(e => console.error('Cache save error:', e.message));
+                }
+            }
+        }
+
+        return result.map(r => ({ ...r, name: cached[r.id] || r.name }));
     } catch (e) {
         console.error('Translation failed, returning original:', e.message);
         return rows;
@@ -108,7 +149,7 @@ router.get('/languages', (req, res) => safeFetch('SELECT id, name FROM languages
 router.get('/boards/:state_id', async (req, res) => {
     try {
         const result = await query('SELECT id, name FROM boards WHERE state_id = $1 AND is_active = TRUE ORDER BY name ASC', [req.params.state_id]);
-        const rows = await translateNames(result.rows, req.query.language);
+        const rows = await translateNames(result.rows, req.query.language, 'boards');
         res.json(rows);
     } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
@@ -120,7 +161,7 @@ router.get('/classes', (req, res) => safeFetch('SELECT id, name FROM classes WHE
 router.get('/classes/:board_id', async (req, res) => {
     try {
         const result = await query(`SELECT c.id, c.name FROM board_classes bc JOIN classes c ON bc.class_id = c.id WHERE bc.board_id = $1 AND bc.is_active = TRUE ORDER BY c.id ASC`, [req.params.board_id]);
-        const rows = await translateNames(result.rows, req.query.language);
+        const rows = await translateNames(result.rows, req.query.language, 'classes');
         res.json(rows);
     } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
@@ -168,7 +209,7 @@ router.get('/streams', async (req, res) => {
             }
         }
 
-        const rows = await translateNames(result.rows, language);
+        const rows = await translateNames(result.rows, language, 'streams');
         res.json(rows);
     } catch (e) {
         console.error('Streams route error:', e.message);
@@ -204,7 +245,7 @@ router.get('/subjects', async (req, res) => {
     q += ' ORDER BY name ASC';
     try {
         const result = await query(q, params);
-        const rows = await translateNames(result.rows, language);
+        const rows = await translateNames(result.rows, language, 'subjects');
         res.json(rows);
     } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
@@ -216,7 +257,7 @@ router.get('/subjects/:class_id', (req, res) => safeFetch('SELECT id, name FROM 
 router.get('/chapters/:subject_id', async (req, res) => {
     try {
         const result = await query('SELECT id, name FROM chapters WHERE subject_id = $1 AND is_active = TRUE ORDER BY name ASC', [req.params.subject_id]);
-        const rows = await translateNames(result.rows, req.query.language);
+        const rows = await translateNames(result.rows, req.query.language, 'chapters');
         res.json(rows);
     } catch (e) { res.status(500).json({ message: 'Server error' }); }
 });
