@@ -484,14 +484,32 @@ const initDB = async () => {
             id SERIAL PRIMARY KEY,
             platform VARCHAR(20) NOT NULL,
             ad_type VARCHAR(50) NOT NULL,
-            ad_unit_id TEXT NOT NULL,
-            is_active BOOLEAN DEFAULT TRUE,
+            ad_unit_id TEXT NOT NULL DEFAULT '',
+            is_active BOOLEAN DEFAULT FALSE,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             CONSTRAINT unique_ad_type_per_platform UNIQUE (platform, ad_type)
         );`);
         await query(`CREATE INDEX IF NOT EXISTS idx_ads_platform ON ads_settings(platform);`);
         await query(`CREATE INDEX IF NOT EXISTS idx_ads_active ON ads_settings(is_active);`);
+
+        // Seed default ad slots so admin dashboard always shows all rows
+        const defaultAdSlots = [
+            ['web', 'banner_top'],
+            ['web', 'banner_middle'],
+            ['web', 'banner_bottom'],
+            ['app', 'app_banner'],
+            ['app', 'app_interstitial'],
+        ];
+        for (const [platform, ad_type] of defaultAdSlots) {
+            await query(
+                `INSERT INTO ads_settings (platform, ad_type, ad_unit_id, is_active)
+                 VALUES ($1, $2, '', FALSE)
+                 ON CONFLICT (platform, ad_type) DO NOTHING;`,
+                [platform, ad_type]
+            );
+        }
+        console.log('✅ Ads Settings Table & Default Slots Ready');
 
         // MCQ Pool
         await query(`
