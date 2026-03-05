@@ -66,6 +66,8 @@ router.get('/practice', verifyToken, subscriptionCheck, async (req, res) => {
     const client = await pool.connect(); // Use direct client for transaction
 
     try {
+        let sessionInfo = null;
+
         // Free user check via Transaction (Avoid Race Condition)
         if (!req.isPremium) {
             await client.query('BEGIN');
@@ -74,10 +76,11 @@ router.get('/practice', verifyToken, subscriptionCheck, async (req, res) => {
             const settings = Object.fromEntries(settingsResult.rows.map(r => [r.key, r.value]));
             const freeLimit = parseInt(settings['FREE_SESSIONS_COUNT'] || '2');
             const mcqsPerSession = parseInt(settings['FREE_SESSION_MCQS'] || '10');
+            const totalAllowedFreeMcqs = freeLimit * mcqsPerSession;
 
-            // Lock row for update
+            // Check how many questions they have submitted today
             const usageResult = await client.query(
-                `SELECT count FROM user_daily_usage WHERE user_id = $1 AND date = CURRENT_DATE FOR UPDATE`,
+                `SELECT count FROM user_daily_usage WHERE user_id = $1 AND date = CURRENT_DATE`,
                 [req.user.id]
             );
 
@@ -86,7 +89,7 @@ router.get('/practice', verifyToken, subscriptionCheck, async (req, res) => {
                 dailyCount = usageResult.rows[0].count;
             }
 
-            if (dailyCount >= freeLimit) {
+            if (dailyCount >= totalAllowedFreeMcqs) {
                 await client.query('ROLLBACK');
                 return res.status(403).json({
                     message: 'Daily free limit reached',
@@ -98,14 +101,11 @@ router.get('/practice', verifyToken, subscriptionCheck, async (req, res) => {
                 });
             }
 
-            // Valid usage, increment count
-            await client.query(`
-                INSERT INTO user_daily_usage (user_id, date, count)
-                VALUES ($1, CURRENT_DATE, 1)
-                ON CONFLICT (user_id, date)
-                DO UPDATE SET count = user_daily_usage.count + 1
-             `, [req.user.id]);
+            // Calculate sessions used based on completed MCQs
+            const sessionsUsed = Math.floor(dailyCount / mcqsPerSession);
+            sessionInfo = { used: sessionsUsed, total: freeLimit, isPremium: false };
 
+            // Note: We no longer increment the count here. We increment it in /api/mcq/submit
             await client.query('COMMIT');
 
             // Override limit from query if free user
@@ -168,7 +168,7 @@ router.get('/practice', verifyToken, subscriptionCheck, async (req, res) => {
             }
         }
 
-        res.json(result.rows);
+        res.json({ mcqs: result.rows, sessionInfo });
     } catch (error) {
         if (!req.isPremium) await client.query('ROLLBACK');
         console.error(error);
@@ -192,6 +192,7 @@ router.post('/generate-practice', verifyToken, subscriptionCheck, async (req, re
 
     try {
         let requestedLimit = limit;
+        let sessionInfo = null;
         // Free user check via Transaction (Avoid Race Condition)
         if (!req.isPremium) {
             await client.query('BEGIN');
@@ -200,10 +201,11 @@ router.post('/generate-practice', verifyToken, subscriptionCheck, async (req, re
             const settings = Object.fromEntries(settingsResult.rows.map(r => [r.key, r.value]));
             const freeLimit = parseInt(settings['FREE_SESSIONS_COUNT'] || '2');
             const mcqsPerSession = parseInt(settings['FREE_SESSION_MCQS'] || '10');
+            const totalAllowedFreeMcqs = freeLimit * mcqsPerSession;
 
-            // Lock row for update
+            // Check how many questions they have submitted today
             const usageResult = await client.query(
-                `SELECT count FROM user_daily_usage WHERE user_id = $1 AND date = CURRENT_DATE FOR UPDATE`,
+                `SELECT count FROM user_daily_usage WHERE user_id = $1 AND date = CURRENT_DATE`,
                 [req.user.id]
             );
 
@@ -212,7 +214,7 @@ router.post('/generate-practice', verifyToken, subscriptionCheck, async (req, re
                 dailyCount = usageResult.rows[0].count;
             }
 
-            if (dailyCount >= freeLimit) {
+            if (dailyCount >= totalAllowedFreeMcqs) {
                 await client.query('ROLLBACK');
                 return res.status(403).json({
                     message: 'Daily free limit reached',
@@ -224,14 +226,11 @@ router.post('/generate-practice', verifyToken, subscriptionCheck, async (req, re
                 });
             }
 
-            // Valid usage, increment count
-            await client.query(`
-                INSERT INTO user_daily_usage (user_id, date, count)
-                VALUES ($1, CURRENT_DATE, 1)
-                ON CONFLICT (user_id, date)
-                DO UPDATE SET count = user_daily_usage.count + 1
-             `, [req.user.id]);
+            // Calculate sessions used based on completed MCQs
+            const sessionsUsed = Math.floor(dailyCount / mcqsPerSession);
+            sessionInfo = { used: sessionsUsed, total: freeLimit, isPremium: false };
 
+            // Note: We no longer increment the count here. We increment it in /api/mcq/submit
             await client.query('COMMIT');
 
             // Override limit from query if free user
@@ -265,7 +264,7 @@ router.post('/generate-practice', verifyToken, subscriptionCheck, async (req, re
             ...q
         }));
 
-        res.json(finalQs);
+        res.json({ mcqs: finalQs, sessionInfo });
     } catch (error) {
         if (!req.isPremium) {
             try { await client.query('ROLLBACK'); } catch (e) { }
@@ -291,8 +290,16 @@ router.post('/submit', verifyToken, async (req, res) => {
             const { actual_correct_option } = req.body;
             const isCorrect = actual_correct_option === selected_option;
 
-            // Note: We can't insert into user_mcq_history because there is no true mcq_id integer.
-            // But we can return success so the UI stays green/red.
+            // Insert or update daily usage for free users answering live questions
+            if (!req.user.is_premium) {
+                await query(`
+                    INSERT INTO user_daily_usage (user_id, date, count)
+                    VALUES ($1, CURRENT_DATE, 1)
+                    ON CONFLICT (user_id, date)
+                    DO UPDATE SET count = user_daily_usage.count + 1
+                `, [req.user.id]);
+            }
+
             return res.json({
                 is_correct: isCorrect,
                 correct_option: actual_correct_option
@@ -312,6 +319,16 @@ router.post('/submit', verifyToken, async (req, res) => {
             'INSERT INTO user_mcq_history (user_id, mcq_id, is_correct) VALUES ($1, $2, $3)',
             [req.user.id, mcq_id, isCorrect]
         );
+
+        // Insert or update daily usage for free users answering pooled questions
+        if (!req.user.is_premium) {
+            await query(`
+                INSERT INTO user_daily_usage (user_id, date, count)
+                VALUES ($1, CURRENT_DATE, 1)
+                ON CONFLICT (user_id, date)
+                DO UPDATE SET count = user_daily_usage.count + 1
+            `, [req.user.id]);
+        }
 
         res.json({
             is_correct: isCorrect,

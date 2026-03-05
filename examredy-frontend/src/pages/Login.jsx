@@ -44,6 +44,31 @@ const Login = () => {
         onError: () => setError('Google Sign-In was cancelled or failed')
     });
 
+    // Called when user taps Google button — uses native Flutter bridge if in WebView
+    const onGoogleButtonClick = async () => {
+        if (window.__isFlutterWebView && window.__triggerFlutterGoogleSignIn) {
+            // Inside Flutter APK — use native Google Sign-In
+            try {
+                setGoogleLoading(true);
+                setError('');
+                const accessToken = await window.__triggerFlutterGoogleSignIn();
+                const user = await googleLogin(accessToken);
+                if (user.role === 'admin') {
+                    navigate('/admin/dashboard');
+                } else {
+                    navigate('/');
+                }
+            } catch (err) {
+                setError(err.message === 'Sign-in cancelled' ? '' : 'Google authentication failed');
+            } finally {
+                setGoogleLoading(false);
+            }
+        } else {
+            // Regular browser — use popup flow
+            handleGoogleLogin();
+        }
+    };
+
     return (
         <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center bg-gray-50 px-4">
             <div className="max-w-md w-full bg-white rounded-lg shadow-md p-8">
@@ -57,7 +82,7 @@ const Login = () => {
                 <form onSubmit={handleSubmit} className="space-y-6">
                     <button
                         type="button"
-                        onClick={() => handleGoogleLogin()}
+                        onClick={() => onGoogleButtonClick()}
                         disabled={googleLoading}
                         className="w-full flex items-center justify-center gap-3 py-2.5 px-4 border border-gray-300 rounded-xl shadow-sm text-sm font-bold text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-200 transition-all disabled:opacity-70"
                     >

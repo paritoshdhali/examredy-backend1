@@ -40,7 +40,7 @@ const generateMCQInitial = async (topic, count = 5, language = 'English') => {
         
         CRITICAL FORMATTING RULES:
         1. Return ONLY a valid JSON array. Do not include any markdown formatting (like \`\`\`json).
-        2. Ensure valid JSON syntax: NO trailing commas, NO unescaped quotes inside strings, and NO missing brackets.
+        2. Ensure valid JSON syntax: NO trailing commas, NO unescaped quotes inside strings, and NO missing brackets. You MUST use single quotes (') for any quotes INSIDE the text translations. NEVER use double quotes (") inside the text values.
         3. Do not include any other text before or after the JSON array.`;
 
         let response;
@@ -100,8 +100,8 @@ const generateMCQInitial = async (topic, count = 5, language = 'English') => {
         } catch (parseError) {
             console.error('Initial JSON Parse Failed, attempting aggressive cleanup. Error:', parseError.message);
             try {
-                // Aggressive cleanup for common LLM control character issues (like unescaped newlines in strings, tab chars, etc.)
-                const aggressiveClean = cleanText.replace(/[\x00-\x1F\x7F-\x9F]/g, "");
+                // Aggressive cleanup: Replace control chars with SPACE instead of deleting them to prevent merging words.
+                const aggressiveClean = cleanText.replace(/[\x00-\x1F\x7F-\x9F]/g, " ");
                 parsedData = JSON.parse(aggressiveClean);
             } catch (e2) {
                 throw new Error('AI response was not valid JSON. Parse Error: ' + parseError.message + '\\nResponse starts with: ' + cleanText.substring(0, 100));

@@ -6,6 +6,7 @@ const Prime = () => {
     const { user: authUser } = useAuth();
     const [plans, setPlans] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [paymentStatus, setPaymentStatus] = useState(null); // 'success' | 'failed' | null
     const user = authUser || JSON.parse(localStorage.getItem('user')) || { username: 'Guest', email: 'guest@example.com', id: '1' };
 
     useEffect(() => {
@@ -22,6 +23,20 @@ const Prime = () => {
             }
         };
         fetchPlans();
+    }, []);
+
+    // Detect payment result from URL after Razorpay redirect
+    useEffect(() => {
+        const params = new URLSearchParams(window.location.search);
+        const payment = params.get('payment');
+        if (payment === 'success') {
+            setPaymentStatus('success');
+            // Clean URL without reload
+            window.history.replaceState({}, '', '/prime');
+        } else if (payment === 'failed') {
+            setPaymentStatus('failed');
+            window.history.replaceState({}, '', '/prime');
+        }
     }, []);
 
     const loadRazorpay = () => {
@@ -51,7 +66,9 @@ const Prime = () => {
             const orderRes = await api.post('/subscription/create-order', { planId });
             const order = orderRes.data;
 
-            // 2. Initialize Razorpay
+            // 2. Detect Flutter WebView → use redirect mode (popup doesn't work in WebView)
+            const isFlutterWebView = !!(window.__isFlutterWebView);
+
             const options = {
                 key: key_id,
                 amount: order.amount,
@@ -59,8 +76,20 @@ const Prime = () => {
                 name: "ExamRedy",
                 description: "Premium Subscription",
                 order_id: order.id,
-                handler: async function (response) {
-                    // 3. Verify Payment
+                prefill: {
+                    name: user.username,
+                    email: user.email,
+                },
+                theme: { color: "#2563EB" }
+            };
+
+            if (isFlutterWebView) {
+                // Redirect mode: Razorpay redirects to callback_url after payment
+                options.redirect = true;
+                options.callback_url = `${import.meta.env.VITE_API_URL || 'https://examredy-backend1-production.up.railway.app'}/api/subscription/payment-callback?planId=${planId}`;
+            } else {
+                // Browser mode: normal popup handler
+                options.handler = async function (response) {
                     try {
                         await api.post('/subscription/verify-payment', {
                             razorpay_order_id: response.razorpay_order_id,
@@ -73,15 +102,8 @@ const Prime = () => {
                     } catch (err) {
                         alert('Payment verification failed');
                     }
-                },
-                prefill: {
-                    name: user.username,
-                    email: user.email,
-                },
-                theme: {
-                    color: "#2563EB"
-                }
-            };
+                };
+            }
 
             const paymentObject = new window.Razorpay(options);
             paymentObject.open();
@@ -96,6 +118,29 @@ const Prime = () => {
     return (
         <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
             <div className="max-w-7xl mx-auto">
+
+                {/* Payment Result Banner */}
+                {paymentStatus === 'success' && (
+                    <div className="mb-8 bg-green-50 border border-green-200 rounded-2xl p-4 flex items-center gap-3">
+                        <span className="text-2xl">✅</span>
+                        <div>
+                            <p className="font-bold text-green-800">Payment Successful!</p>
+                            <p className="text-green-700 text-sm">Your sessions have been added to your account.</p>
+                        </div>
+                        <button onClick={() => setPaymentStatus(null)} className="ml-auto text-green-600 hover:text-green-800 font-bold text-lg">✕</button>
+                    </div>
+                )}
+                {paymentStatus === 'failed' && (
+                    <div className="mb-8 bg-red-50 border border-red-200 rounded-2xl p-4 flex items-center gap-3">
+                        <span className="text-2xl">❌</span>
+                        <div>
+                            <p className="font-bold text-red-800">Payment Failed</p>
+                            <p className="text-red-700 text-sm">Something went wrong. Please try again or contact support.</p>
+                        </div>
+                        <button onClick={() => setPaymentStatus(null)} className="ml-auto text-red-600 hover:text-red-800 font-bold text-lg">✕</button>
+                    </div>
+                )}
+
                 <div className="text-center mb-16">
                     <h1 className="text-4xl font-extrabold text-gray-900 mb-4">Upgrade to <span className="text-yellow-500">Prime 👑</span></h1>
                     <p className="text-xl text-gray-600 max-w-2xl mx-auto">
