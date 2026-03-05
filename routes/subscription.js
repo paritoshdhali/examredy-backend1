@@ -185,16 +185,18 @@ router.post('/verify-payment', verifyToken, async (req, res) => {
     }
 });
 
-// @route   GET /api/subscription/payment-callback
-// @desc    Razorpay redirect callback (used by Flutter WebView redirect mode)
-// @access  Public (Razorpay calls this after payment)
-router.get('/payment-callback', async (req, res) => {
+// @route   POST /api/subscription/payment-callback
+// @desc    Razorpay embedded checkout callback (Razorpay POSTs here after payment)
+// @access  Public (Razorpay calls this)
+router.post('/payment-callback', async (req, res) => {
     const {
         razorpay_order_id,
         razorpay_payment_id,
         razorpay_signature,
-        planId
-    } = req.query;
+    } = req.body;
+
+    // planId can come from query param (we put it in callback_url) or body
+    const planId = req.query.planId || req.body.planId;
 
     const frontendUrl = process.env.FRONTEND_URL || 'https://examredy-frontend.vercel.app';
 
