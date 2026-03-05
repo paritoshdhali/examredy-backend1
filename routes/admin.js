@@ -1047,4 +1047,48 @@ router.put('/legal-pages/:id', async (req, res) => {
     }
 });
 
+// ═══════════════════════════════════════════════
+// ADS MANAGEMENT ROUTES
+// ═══════════════════════════════════════════════
+
+// @route   GET /api/admin/ads
+// @desc    Get all ad settings (for admin dashboard)
+// @access  Admin
+router.get('/ads', verifyToken, admin, async (req, res) => {
+    try {
+        const result = await query('SELECT * FROM ads_settings ORDER BY platform, ad_type ASC');
+        res.json(result.rows);
+    } catch (e) {
+        console.error('[ADMIN-ADS-GET]', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// @route   POST /api/admin/ads
+// @desc    Create or update a single ad slot (upsert)
+// @access  Admin
+router.post('/ads', verifyToken, admin, async (req, res) => {
+    const { platform, ad_type, ad_unit_id, is_active } = req.body;
+    if (!platform || !ad_type) {
+        return res.status(400).json({ error: 'platform and ad_type are required' });
+    }
+    try {
+        await query(
+            `INSERT INTO ads_settings (platform, ad_type, ad_unit_id, is_active, updated_at)
+             VALUES ($1, $2, $3, $4, NOW())
+             ON CONFLICT (platform, ad_type)
+             DO UPDATE SET ad_unit_id = $3, is_active = $4, updated_at = NOW()`,
+            [platform, ad_type, ad_unit_id || '', is_active !== false]
+        );
+        const updated = await query(
+            'SELECT * FROM ads_settings WHERE platform = $1 AND ad_type = $2',
+            [platform, ad_type]
+        );
+        res.json({ success: true, ad: updated.rows[0] });
+    } catch (e) {
+        console.error('[ADMIN-ADS-POST]', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
 module.exports = router;

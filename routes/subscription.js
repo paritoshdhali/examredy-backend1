@@ -67,6 +67,91 @@ router.post('/plans', verifyToken, admin, async (req, res) => {
     }
 });
 
+// @route   GET /api/subscription/initiate-payment
+// @desc    Server-side payment page — used by Flutter WebView to navigate directly
+//          Creates Razorpay order + renders auto-submit HTML form to Razorpay
+// @access  Private (token in query param)
+router.get('/initiate-payment', async (req, res) => {
+    const { token, planId } = req.query;
+    const frontendUrl = process.env.FRONTEND_URL || 'https://examredy-frontend.vercel.app';
+
+    if (!token || !planId) {
+        return res.redirect(`${frontendUrl}/prime?payment=failed&reason=missing_params`);
+    }
+
+    // Verify JWT token manually
+    let userId;
+    try {
+        const jwt = require('jsonwebtoken');
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        userId = decoded.id || decoded.userId;
+    } catch (e) {
+        return res.redirect(`${frontendUrl}/prime?payment=failed&reason=auth_failed`);
+    }
+
+    try {
+        const planResult = await query('SELECT * FROM subscription_plans WHERE id = $1', [planId]);
+        if (planResult.rows.length === 0) {
+            return res.redirect(`${frontendUrl}/prime?payment=failed&reason=plan_not_found`);
+        }
+        const plan = planResult.rows[0];
+
+        const rzp = await getRazorpayInstance();
+        const amountPaise = Math.round(parseFloat(plan.price) * 100);
+        const order = await rzp.orders.create({
+            amount: amountPaise,
+            currency: 'INR',
+            receipt: `order_rcptid_${Date.now()}_${userId}`
+        });
+
+        const gatewayRes = await query("SELECT api_key FROM payment_gateway_settings WHERE provider = 'razorpay' AND is_active = TRUE");
+        const key_id = gatewayRes.rows[0]?.api_key || process.env.RAZORPAY_KEY_ID || '';
+
+        const userRes = await query('SELECT username, email FROM users WHERE id = $1', [userId]);
+        const user = userRes.rows[0] || {};
+
+        const callbackUrl = `https://examredy-backend1-production.up.railway.app/api/subscription/payment-callback?planId=${planId}`;
+        const cancelUrl = `${frontendUrl}/prime?payment=failed&reason=cancelled`;
+
+        // Return HTML page with auto-submit form to Razorpay embedded checkout
+        res.send(`<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ExamRedy Payment</title>
+  <style>
+    body { font-family: -apple-system, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background: #1a1a2e; color: white; }
+    .card { text-align: center; padding: 32px; }
+    .spinner { width: 48px; height: 48px; border: 4px solid rgba(255,255,255,0.1); border-top-color: #4f46e5; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 20px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="spinner"></div>
+    <p>Redirecting to payment...</p>
+  </div>
+  <form id="rzp" method="POST" action="https://api.razorpay.com/v1/checkout/embedded">
+    <input type="hidden" name="key_id" value="${key_id}">
+    <input type="hidden" name="order_id" value="${order.id}">
+    <input type="hidden" name="name" value="ExamRedy">
+    <input type="hidden" name="description" value="Premium - ${plan.name}">
+    <input type="hidden" name="prefill[name]" value="${user.username || ''}">
+    <input type="hidden" name="prefill[email]" value="${user.email || ''}">
+    <input type="hidden" name="callback_url" value="${callbackUrl}">
+    <input type="hidden" name="cancel_url" value="${cancelUrl}">
+  </form>
+  <script>document.getElementById('rzp').submit();</script>
+</body>
+</html>`);
+
+    } catch (error) {
+        console.error('[INITIATE-PAYMENT]', error);
+        return res.redirect(`${frontendUrl}/prime?payment=failed&reason=server_error`);
+    }
+});
+
 // @route   POST /api/subscription/create-order
 // @desc    Create Razorpay order
 // @access  Private
