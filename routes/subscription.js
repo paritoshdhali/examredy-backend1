@@ -185,5 +185,118 @@ router.post('/verify-payment', verifyToken, async (req, res) => {
     }
 });
 
+// @route   GET /api/subscription/payment-callback
+// @desc    Razorpay redirect callback (used by Flutter WebView redirect mode)
+// @access  Public (Razorpay calls this after payment)
+router.get('/payment-callback', async (req, res) => {
+    const {
+        razorpay_order_id,
+        razorpay_payment_id,
+        razorpay_signature,
+        planId
+    } = req.query;
+
+    const frontendUrl = process.env.FRONTEND_URL || 'https://examredy-frontend.vercel.app';
+
+    if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature || !planId) {
+        return res.redirect(`${frontendUrl}/prime?payment=failed&reason=missing_params`);
+    }
+
+    try {
+        // Get dynamic secret
+        const gatewayRes = await query("SELECT api_secret FROM payment_gateway_settings WHERE provider = 'razorpay' AND is_active = TRUE");
+        const key_secret = gatewayRes.rows[0]?.api_secret || process.env.RAZORPAY_KEY_SECRET || 'secret_placeholder';
+
+        // Verify signature
+        const hmac = require('crypto').createHmac('sha256', key_secret);
+        hmac.update(razorpay_order_id + "|" + razorpay_payment_id);
+        const generated_signature = hmac.digest('hex');
+
+        if (generated_signature !== razorpay_signature) {
+            return res.redirect(`${frontendUrl}/prime?payment=failed&reason=invalid_signature`);
+        }
+
+        // Find user by looking up the order in payments table or from razorpay order notes
+        // We need to get the user_id from the order — look it up via Razorpay order ID
+        const rzp = await getRazorpayInstance();
+        const order = await rzp.orders.fetch(razorpay_order_id);
+        const receiptParts = order.receipt?.split('_') || [];
+        // receipt format: order_rcptid_{timestamp}_{userId}
+        const userId = receiptParts[receiptParts.length - 1];
+
+        if (!userId || isNaN(parseInt(userId))) {
+            return res.redirect(`${frontendUrl}/prime?payment=failed&reason=user_not_found`);
+        }
+
+        const client = await pool.connect();
+        try {
+            await client.query('BEGIN');
+
+            // 1. Get Plan
+            const planResult = await client.query('SELECT * FROM subscription_plans WHERE id = $1', [planId]);
+            if (planResult.rows.length === 0) {
+                await client.query('ROLLBACK');
+                return res.redirect(`${frontendUrl}/prime?payment=failed&reason=plan_not_found`);
+            }
+            const plan = planResult.rows[0];
+
+            // 2. Check not already processed (idempotency)
+            const existingPayment = await client.query(
+                'SELECT id FROM payments WHERE razorpay_payment_id = $1', [razorpay_payment_id]
+            );
+            if (existingPayment.rows.length > 0) {
+                await client.query('ROLLBACK');
+                return res.redirect(`${frontendUrl}/prime?payment=success`);
+            }
+
+            // 3. Record Payment
+            await client.query(
+                'INSERT INTO payments (user_id, razorpay_order_id, razorpay_payment_id, amount, status) VALUES ($1, $2, $3, $4, $5)',
+                [userId, razorpay_order_id, razorpay_payment_id, plan.price, 'captured']
+            );
+
+            // 4. Activate Subscription
+            await client.query(
+                'UPDATE users SET is_premium = TRUE, sessions_left = sessions_left + $1 WHERE id = $2',
+                [plan.sessions_limit, userId]
+            );
+
+            // 5. Referral Reward
+            const sysResult = await client.query("SELECT key, value FROM system_settings WHERE key IN ('REFERRAL_ENABLED', 'REFERRAL_REWARD_TYPE', 'REFERRAL_REWARD_DURATION', 'REFERRAL_MIN_PURCHASE_RS')");
+            const sys = Object.fromEntries(sysResult.rows.map(r => [r.key, r.value]));
+
+            if (sys.REFERRAL_ENABLED === 'true' && plan.price >= parseFloat(sys.REFERRAL_MIN_PURCHASE_RS || 0)) {
+                const referralCheck = await client.query(
+                    `SELECT * FROM referrals WHERE referred_user_id = $1 AND reward_given = FALSE`, [userId]
+                );
+                if (referralCheck.rows.length > 0) {
+                    const referrerId = referralCheck.rows[0].referrer_id;
+                    const refId = referralCheck.rows[0].id;
+                    if (plan.referral_bonus_sessions > 0) {
+                        await client.query(`UPDATE users SET sessions_left = sessions_left + $1, is_premium = TRUE WHERE id = $2`, [plan.referral_bonus_sessions, referrerId]);
+                        await client.query(`UPDATE users SET sessions_left = sessions_left + $1 WHERE id = $2`, [plan.referral_bonus_sessions, userId]);
+                    }
+                    await client.query(`UPDATE referrals SET reward_given = TRUE, status = 'completed' WHERE id = $1`, [refId]);
+                }
+            }
+
+            await client.query('COMMIT');
+            console.log(`[PAYMENT-CALLBACK] Payment verified for user ${userId}, plan ${planId}`);
+            return res.redirect(`${frontendUrl}/prime?payment=success`);
+
+        } catch (error) {
+            await client.query('ROLLBACK');
+            console.error('[PAYMENT-CALLBACK] Error:', error);
+            return res.redirect(`${frontendUrl}/prime?payment=failed&reason=server_error`);
+        } finally {
+            client.release();
+        }
+
+    } catch (error) {
+        console.error('[PAYMENT-CALLBACK] Fatal error:', error);
+        return res.redirect(`${frontendUrl}/prime?payment=failed&reason=server_error`);
+    }
+});
+
 module.exports = router;
 
