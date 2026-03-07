@@ -11,8 +11,9 @@ const Footer = () => {
         const fetchSettings = async () => {
             try {
                 const res = await api.get('/settings');
-                if (res.data && res.data.system) {
-                    setSettings(res.data.system);
+                // The public /api/settings route simply returns an object map of settings directly in res.data
+                if (res.data) {
+                    setSettings(res.data);
                 }
             } catch (err) {
                 console.error("Failed to load footer settings:", err);
