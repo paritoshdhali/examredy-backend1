@@ -13,10 +13,11 @@ const Footer = () => {
                 const res = await api.get('/settings');
                 // The public /api/settings route simply returns an object map of settings directly in res.data
                 if (res.data) {
+                    console.log("[Footer] Loaded settings:", res.data); // Debugging log
                     setSettings(res.data);
                 }
             } catch (err) {
-                console.error("Failed to load footer settings:", err);
+                console.error("[Footer] Failed to load settings:", err);
             }
         };
         fetchSettings();
@@ -96,13 +97,13 @@ const Footer = () => {
                                 <div className="w-8 h-8 rounded-lg bg-gray-50 flex items-center justify-center group-hover:bg-indigo-50 transition-colors">
                                     <Mail size={14} />
                                 </div>
-                                {(settings?.SUPPORT_EMAIL && settings.SUPPORT_EMAIL !== 'undefined') ? settings.SUPPORT_EMAIL : 'support@examredy.in'}
+                                {(settings?.SUPPORT_EMAIL && settings.SUPPORT_EMAIL.trim() !== '' && settings.SUPPORT_EMAIL !== 'undefined') ? settings.SUPPORT_EMAIL : 'support@examredy.in'}
                             </div>
                             <div className="flex items-center gap-3 text-gray-500 text-sm font-bold">
                                 <div className="w-8 h-8 rounded-lg bg-gray-50 flex items-center justify-center">
                                     <MapPin size={14} />
                                 </div>
-                                {(settings?.WHATSAPP_NUMBER && settings.WHATSAPP_NUMBER !== 'undefined') ? settings.WHATSAPP_NUMBER : '+91 XXXX XXXX'}
+                                {(settings?.WHATSAPP_NUMBER && settings.WHATSAPP_NUMBER.trim() !== '' && settings.WHATSAPP_NUMBER !== 'undefined') ? settings.WHATSAPP_NUMBER : '+91 XXXX XXXX'}
                             </div>
                             <button className="w-full mt-4 flex items-center justify-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest shadow-lg shadow-indigo-500/20 hover:scale-105 active:scale-95 transition-all">
                                 <MessageCircle size={14} /> Contact Expert
