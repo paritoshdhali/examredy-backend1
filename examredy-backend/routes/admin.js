@@ -34,7 +34,7 @@ router.get('/debug-token', (req, res) => {
 router.post('/login', async (req, res) => {
     const { email, password } = req.body;
     try {
-        const result = await query('SELECT id, username, email, password, role FROM users WHERE email = $1', [email]);
+        const result = await query('SELECT id, username, email, password, role FROM users WHERE email ILIKE $1', [email.trim()]);
         const user = result.rows[0];
         if (!user || user.role !== 'admin') return res.status(403).json({ message: 'Not authorized' });
         const isMatch = await comparePassword(password, user.password);

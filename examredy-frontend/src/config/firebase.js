@@ -1,23 +1,15 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 
+// Firebase client-side config is safe to hardcode (it's public/visible in browser)
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID
+  apiKey: "AIzaSyD7l7G3rQl6JG7QxA9aEKjYPL3cNf0XOHs",
+  authDomain: "n8n-ai-news-agent.firebaseapp.com",
+  projectId: "n8n-ai-news-agent",
+  storageBucket: "n8n-ai-news-agent.firebasestorage.app",
+  messagingSenderId: "1067421029126",
+  appId: "1:1067421029126:web:3ff0bdf26ef3f977bd0487"
 };
-
-// Check if any config is missing
-const missingKeys = Object.entries(firebaseConfig)
-  .filter(([_, value]) => !value || value === 'your_firebase_api_key_here')
-  .map(([key]) => key);
-
-if (missingKeys.length > 0) {
-  console.warn("Firebase configuration is missing or incomplete:", missingKeys);
-}
 
 let app;
 let auth;
@@ -25,11 +17,10 @@ let auth;
 try {
   app = initializeApp(firebaseConfig);
   auth = getAuth(app);
+  console.log("Firebase initialized successfully");
 } catch (error) {
   console.error("Failed to initialize Firebase:", error);
-  // Provide a fallback or dummy auth object to prevent total crash if possible, 
-  // though most auth operations will fail.
-  auth = null; 
+  auth = null;
 }
 
 export { app, auth };

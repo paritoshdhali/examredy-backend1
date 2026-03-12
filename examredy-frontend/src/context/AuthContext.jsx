@@ -1,7 +1,5 @@
 import React, { createContext, useState, useEffect, useContext } from 'react';
 import api from '../services/api';
-import { auth } from '../config/firebase';
-import { onAuthStateChanged } from 'firebase/auth';
 
 const AuthContext = createContext();
 
@@ -10,47 +8,36 @@ export const AuthProvider = ({ children }) => {
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        // Source of truth: Firebase Auth
-        if (!auth) {
-            console.error("Firebase Auth is not initialized.");
-            setLoading(false);
-            return;
-        }
-
-        const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-            if (firebaseUser) {
-                setUser(firebaseUser);
-            } else {
-                // Fallback to token-based user if no firebase user (e.g. legacy or admin)
-                const token = localStorage.getItem('adminToken') || localStorage.getItem('token');
-                if (token) {
-                    try {
-                        const res = await api.get('/auth/me');
-                        setUser(res.data);
-                    } catch (error) {
-                        console.error("Token validation failed:", error);
-                        localStorage.removeItem('token');
-                        localStorage.removeItem('adminToken');
-                        setUser(null);
-                    }
-                } else {
+        // On mount, restore session from localStorage token (for email/admin login)
+        const restoreSession = async () => {
+            const token = localStorage.getItem('adminToken') || localStorage.getItem('token');
+            if (token) {
+                try {
+                    const res = await api.get('/auth/me');
+                    setUser(res.data);
+                } catch (error) {
+                    console.error("Token validation failed:", error);
+                    localStorage.removeItem('token');
+                    localStorage.removeItem('adminToken');
                     setUser(null);
                 }
+            } else {
+                setUser(null);
             }
             setLoading(false);
-        });
+        };
 
-        return () => unsubscribe();
+        restoreSession();
     }, []);
 
     const setAuthData = (data) => {
         if (data.token) {
             if (data.role === 'admin') {
                 localStorage.setItem('adminToken', data.token);
-                localStorage.removeItem('token'); // Clear regular user session
+                localStorage.removeItem('token');
             } else {
                 localStorage.setItem('token', data.token);
-                localStorage.removeItem('adminToken'); // Clear admin session
+                localStorage.removeItem('adminToken');
             }
         }
         setUser(data.user || data);

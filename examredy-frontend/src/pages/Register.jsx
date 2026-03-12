@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useGoogleLogin } from '@react-oauth/google';
@@ -20,27 +20,37 @@ const Register = () => {
     const [confirmationResult, setConfirmationResult] = useState(null);
     const [phoneLoading, setPhoneLoading] = useState(false);
 
+    const recaptchaVerifierRef = useRef(null);
+
     const { register, googleLogin, phoneLogin } = useAuth();
     const navigate = useNavigate();
 
-    // Initialize recaptcha if not already done
-    React.useEffect(() => {
+    // Initialize RecaptchaVerifier fresh on mount and cleanup on unmount
+    useEffect(() => {
+        if (!auth) return;
         try {
-            if (!window.recaptchaVerifier && auth) {
-                window.recaptchaVerifier = new RecaptchaVerifier(auth, 'recaptcha-container', {
-                    'size': 'invisible',
-                    'callback': (response) => {
-                        // reCAPTCHA solved
-                    },
-                    'expired-callback': () => {
-                        // Response expired. Ask user to solve reCAPTCHA again.
-                    }
-                });
+            // Always clear old global verifier when this page mounts
+            if (window.recaptchaVerifier) {
+                try { window.recaptchaVerifier.clear(); } catch (_) {}
+                window.recaptchaVerifier = null;
             }
+            const verifier = new RecaptchaVerifier(auth, 'recaptcha-container-register', {
+                'size': 'invisible',
+                'callback': () => {},
+                'expired-callback': () => {}
+            });
+            recaptchaVerifierRef.current = verifier;
         } catch (err) {
             console.error("Recaptcha initialization failed:", err);
             setError("Authentication security service failed to initialize. Please refresh the page.");
         }
+
+        return () => {
+            if (recaptchaVerifierRef.current) {
+                try { recaptchaVerifierRef.current.clear(); } catch (_) {}
+                recaptchaVerifierRef.current = null;
+            }
+        };
     }, []);
 
     // Get referral code from URL
@@ -89,7 +99,12 @@ const Register = () => {
         setPhoneLoading(true);
         try {
             const formattedPhone = phoneNumber.startsWith('+') ? phoneNumber : `+91${phoneNumber}`;
-            const appVerifier = window.recaptchaVerifier;
+            const appVerifier = recaptchaVerifierRef.current;
+            if (!appVerifier) {
+                setError('reCAPTCHA not ready. Please refresh the page.');
+                setPhoneLoading(false);
+                return;
+            }
             const confirmation = await signInWithPhoneNumber(auth, formattedPhone, appVerifier);
             setConfirmationResult(confirmation);
         } catch (err) {
@@ -285,7 +300,7 @@ const Register = () => {
                 </form>
 
                 {/* reCAPTCHA container must be present in DOM */}
-                <div id="recaptcha-container"></div>
+                <div id="recaptcha-container-register"></div>
 
                 <div className="mt-6 text-center">
                     <p className="text-sm text-gray-600">
