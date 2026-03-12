@@ -84,9 +84,9 @@ router.get('/stats/revenue', async (req, res) => {
 router.get('/users', async (req, res) => {
     const { page = 1, limit = 20, search = '' } = req.query;
     const offset = (page - 1) * limit;
-    let q = 'SELECT id, username, email, role, is_premium, is_active, created_at FROM users';
+    let q = 'SELECT id, username, email, phone_number, role, is_premium, is_active, created_at FROM users';
     const params = [limit, offset];
-    if (search) { q += ' WHERE email ILIKE $3 OR username ILIKE $3'; params.push(`%${search}%`); }
+    if (search) { q += ' WHERE email ILIKE $3 OR username ILIKE $3 OR phone_number ILIKE $3'; params.push(`%${search}%`); }
     q += ' ORDER BY created_at DESC LIMIT $1 OFFSET $2';
     const result = await query(q, params);
     res.json(result.rows);
@@ -152,7 +152,7 @@ router.get('/users/:id/activity', async (req, res) => {
 router.put('/users/:id/status', async (req, res) => {
     try {
         await query('UPDATE users SET is_active = $1 WHERE id = $2', [req.body.is_active, req.params.id]);
-        const uRes = await query('SELECT id, username, email, role, is_premium, is_active, created_at FROM users ORDER BY created_at DESC LIMIT 20');
+        const uRes = await query('SELECT id, username, email, phone_number, role, is_premium, is_active, created_at FROM users ORDER BY created_at DESC LIMIT 20');
         res.json({ success: true, message: 'User status updated', updatedData: uRes.rows });
     } catch (e) { res.status(500).json({ success: false, error: e.message }); }
 });
@@ -776,7 +776,8 @@ router.get('/settings', async (req, res) => {
 
 router.put('/settings/global', async (req, res) => {
     for (const [key, value] of Object.entries(req.body.settings)) {
-        await query('INSERT INTO system_settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = $2', [key, String(value)]);
+        const safeValue = (value === null || value === undefined) ? '' : String(value);
+        await query('INSERT INTO system_settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = $2', [key, safeValue]);
     }
     res.json({ message: 'Settings updated' });
 });

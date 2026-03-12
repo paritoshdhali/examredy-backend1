@@ -3,6 +3,7 @@ const router = express.Router();
 const { query } = require('../db');
 const { hashPassword, comparePassword, generateToken } = require('../utils/helpers');
 const { verifyToken } = require('../middleware/authMiddleware');
+const admin = require('../utils/firebaseAdmin');
 
 // @route   GET /api/auth
 // @desc    Auth health check
@@ -185,6 +186,81 @@ router.post('/google', async (req, res) => {
     } catch (error) {
         console.error('Google Auth Error:', error);
         res.status(401).json({ message: 'Invalid Google authentication token' });
+    }
+});
+
+// @route   POST /api/auth/phone
+// @desc    Authenticate with Firebase Phone Auth
+// @access  Public
+router.post('/phone', async (req, res) => {
+    const { idToken, referrer_id } = req.body;
+
+    if (!idToken) {
+        return res.status(400).json({ message: 'Firebase ID token missing' });
+    }
+
+    try {
+        // Verify the Firebase token
+        const decodedToken = await admin.auth().verifyIdToken(idToken);
+        const phoneNumber = decodedToken.phone_number;
+
+        if (!phoneNumber) {
+             return res.status(400).json({ message: 'No phone number found in token' });
+        }
+
+        // Check if user exists by phone number
+        const userExists = await query('SELECT * FROM users WHERE phone_number = $1', [phoneNumber]);
+        let user;
+
+        if (userExists.rows.length > 0) {
+            // User exists, log them in
+            user = userExists.rows[0];
+            console.log(`Phone Login successful for existing user: ${phoneNumber}`);
+        } else {
+            // User does not exist, create a new account
+            // Generating a random complex password since it's phone auth
+            const randomPassword = require('crypto').randomBytes(16).toString('hex');
+            const hashedPassword = await hashPassword(randomPassword);
+
+            // Create a default username based on phone number
+            const username = `User_${phoneNumber.slice(-4)}`;
+            // Create a dummy email for consistency if db requires it or just leave null if allowed
+            const dummyEmail = `${phoneNumber.replace('+', '')}@examredy.in`;
+
+            const newUser = await query(
+                'INSERT INTO users (username, email, password, is_premium, sessions_left, phone_number) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, username, email, role, is_premium, sessions_left, phone_number',
+                [username, dummyEmail, hashedPassword, false, 0, phoneNumber]
+            );
+
+            user = newUser.rows[0];
+            console.log(`Phone Auto-Registration successful for new user: ${phoneNumber}`);
+
+            // Handle Referral Logic if provided
+            if (referrer_id) {
+                const referrer = await query('SELECT id FROM users WHERE id = $1', [referrer_id]);
+                if (referrer.rows.length > 0) {
+                    await query(
+                        'INSERT INTO referrals (referrer_id, referred_user_id) VALUES ($1, $2)',
+                        [referrer_id, user.id]
+                    );
+                }
+            }
+        }
+
+        // Return standard authentication response matching normal login
+        res.json({
+            id: user.id,
+            username: user.username,
+            email: user.email,
+            role: user.role || 'user',
+            is_premium: user.is_premium || false,
+            phone_number: user.phone_number,
+            token: generateToken(user.id, user.role || 'user', user.email)
+        });
+
+    } catch (error) {
+        console.error('Firebase Phone Auth Error:', error);
+        res.status(401).json({ message: 'Invalid Firebase authentication token' });
     }
 });
 
