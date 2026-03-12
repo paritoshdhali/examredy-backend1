@@ -23,13 +23,21 @@ const Login = () => {
 
     // Initialize recaptcha if not already done
     React.useEffect(() => {
-        if (!window.recaptchaVerifier) {
-            window.recaptchaVerifier = new RecaptchaVerifier(auth, 'recaptcha-container', {
-                'size': 'invisible',
-                'callback': (response) => {
-                    // reCAPTCHA solved
-                }
-            });
+        try {
+            if (!window.recaptchaVerifier && auth) {
+                window.recaptchaVerifier = new RecaptchaVerifier(auth, 'recaptcha-container', {
+                    'size': 'invisible',
+                    'callback': (response) => {
+                        // reCAPTCHA solved
+                    },
+                    'expired-callback': () => {
+                        // Response expired
+                    }
+                });
+            }
+        } catch (err) {
+            console.error("Recaptcha initialization failed:", err);
+            setError("Authentication security service failed to initialize. Please refresh.");
         }
     }, []);
 

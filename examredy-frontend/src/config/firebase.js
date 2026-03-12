@@ -10,5 +10,26 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID
 };
 
-export const app = initializeApp(firebaseConfig);
-export const auth = getAuth(app);
+// Check if any config is missing
+const missingKeys = Object.entries(firebaseConfig)
+  .filter(([_, value]) => !value || value === 'your_firebase_api_key_here')
+  .map(([key]) => key);
+
+if (missingKeys.length > 0) {
+  console.warn("Firebase configuration is missing or incomplete:", missingKeys);
+}
+
+let app;
+let auth;
+
+try {
+  app = initializeApp(firebaseConfig);
+  auth = getAuth(app);
+} catch (error) {
+  console.error("Failed to initialize Firebase:", error);
+  // Provide a fallback or dummy auth object to prevent total crash if possible, 
+  // though most auth operations will fail.
+  auth = null; 
+}
+
+export { app, auth };

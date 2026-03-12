@@ -1,5 +1,7 @@
 import React, { createContext, useState, useEffect, useContext } from 'react';
 import api from '../services/api';
+import { auth } from '../config/firebase';
+import { onAuthStateChanged } from 'firebase/auth';
 
 const AuthContext = createContext();
 
@@ -8,23 +10,37 @@ export const AuthProvider = ({ children }) => {
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        const loadUser = async () => {
-            // Prioritize adminToken over regular token
-            const token = localStorage.getItem('adminToken') || localStorage.getItem('token');
-            if (token) {
-                try {
-                    // This endpoint should verify the token and return user data regardless of role
-                    const res = await api.get('/auth/me');
-                    setUser(res.data);
-                } catch (error) {
-                    console.error("Failed to load user", error);
-                    localStorage.removeItem('token');
-                    localStorage.removeItem('adminToken');
+        // Source of truth: Firebase Auth
+        if (!auth) {
+            console.error("Firebase Auth is not initialized.");
+            setLoading(false);
+            return;
+        }
+
+        const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+            if (firebaseUser) {
+                setUser(firebaseUser);
+            } else {
+                // Fallback to token-based user if no firebase user (e.g. legacy or admin)
+                const token = localStorage.getItem('adminToken') || localStorage.getItem('token');
+                if (token) {
+                    try {
+                        const res = await api.get('/auth/me');
+                        setUser(res.data);
+                    } catch (error) {
+                        console.error("Token validation failed:", error);
+                        localStorage.removeItem('token');
+                        localStorage.removeItem('adminToken');
+                        setUser(null);
+                    }
+                } else {
+                    setUser(null);
                 }
             }
             setLoading(false);
-        };
-        loadUser();
+        });
+
+        return () => unsubscribe();
     }, []);
 
     const setAuthData = (data) => {
