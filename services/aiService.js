@@ -40,8 +40,10 @@ const generateMCQInitial = async (topic, count = 5, language = 'English') => {
         
         CRITICAL FORMATTING RULES:
         1. Return ONLY a valid JSON array. Do not include any markdown formatting (like \`\`\`json).
-        2. Ensure valid JSON syntax: NO trailing commas, NO unescaped quotes inside strings, and NO missing brackets. You MUST use single quotes (') for any quotes INSIDE the text translations. NEVER use double quotes (") inside the text values.
-        3. Do not include any other text before or after the JSON array.`;
+        2. Ensure valid JSON syntax. Use these EXACT keys: "question", "options", "correct_option", "explanation".
+        3. For "correct_option", provide only the index (0, 1, 2, or 3). Do NOT use strings like "A" or "Option 1".
+        4. Use single quotes (') for any quotes INSIDE the text translations. NEVER use double quotes (") inside the text values.
+        5. Do not include any other text before or after the JSON array.`;
 
         let response;
         if (isOpenAI) {
@@ -108,8 +110,54 @@ const generateMCQInitial = async (topic, count = 5, language = 'English') => {
             }
         }
 
-        const mcqs = Array.isArray(parsedData) ? parsedData : (parsedData.mcqs || parsedData.questions || Object.values(parsedData).find(v => Array.isArray(v)) || []);
-        return mcqs.slice(0, count);
+        let mcqs = Array.isArray(parsedData) ? parsedData : (parsedData.mcqs || parsedData.questions || Object.values(parsedData).find(v => Array.isArray(v)) || []);
+        
+        // --- ROBUST NORMALIZATION ---
+        // Ensure all MCQs have the correct keys and map alternative keys if AI deviates
+        const normalizedMcqs = mcqs.map(q => {
+            const normalized = { ...q };
+            
+            // Map common alternative keys for correct_option
+            if (q.correct_option === undefined) {
+                const altKey = ['answer', 'correct_answer', 'correct', 'ans'].find(k => q[k] !== undefined);
+                if (altKey !== undefined) {
+                    const val = q[altKey];
+                    if (typeof val === 'number') normalized.correct_option = val;
+                    else if (typeof val === 'string') {
+                        // 1. Try to find direct index (0-3 or A-D)
+                        const match = val.match(/^[A-D0-3]$/i);
+                        if (match) {
+                            const char = match[0].toUpperCase();
+                            if (char >= '0' && char <= '3') normalized.correct_option = parseInt(char);
+                            else normalized.correct_option = char.charCodeAt(0) - 65;
+                        } else if (Array.isArray(normalized.options)) {
+                            // 2. Try to match the exact text in options array
+                            const textIdx = normalized.options.findIndex(opt => 
+                                String(opt).trim().toLowerCase() === val.trim().toLowerCase()
+                            );
+                            if (textIdx !== -1) normalized.correct_option = textIdx;
+                        }
+                    }
+                }
+            }
+
+            // Ensure options is an array
+            if (!Array.isArray(normalized.options) && typeof normalized.options === 'object') {
+                normalized.options = Object.values(normalized.options);
+            }
+
+            // Final fallback for missing fields
+            return {
+                question: normalized.question || 'Question missing',
+                options: Array.isArray(normalized.options) ? normalized.options.slice(0, 4) : ['Option 1', 'Option 2', 'Option 3', 'Option 4'],
+                correct_option: (normalized.correct_option !== undefined && normalized.correct_option >= 0 && normalized.correct_option <= 3) ? normalized.correct_option : 0,
+                explanation: normalized.explanation || '',
+                subject: topic,
+                chapter: normalized.chapter || 'General'
+            };
+        });
+
+        return normalizedMcqs.slice(0, count);
 
     } catch (error) {
         const errorDetail = error.response?.data?.error?.message || error.response?.data?.message || (typeof error.response?.data === 'string' ? error.response.data : null) || error.message;
