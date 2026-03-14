@@ -170,102 +170,114 @@ router.post('/start', verifyToken, async (req, res) => {
             return res.status(403).json({ message: 'Only host can start' });
         }
 
-        // PRIME CHECK: Decrement creator's session
+        // PRIME CHECK
         const creatorRes = await query('SELECT is_premium, sessions_left, role FROM users WHERE id = $1', [req.user.id]);
         const creator = creatorRes.rows[0];
 
         if (creator.role !== 'admin') {
             if (!creator.is_premium || creator.sessions_left <= 0) {
-                return res.status(403).json({ message: 'Prime subscription required or sessions exhausted to start a group battle.', code: 'SESSIONS_EXHAUSTED' });
+                return res.status(403).json({ message: 'Prime subscription required or sessions exhausted.', code: 'SESSIONS_EXHAUSTED' });
             }
             const newSessions = creator.sessions_left - 1;
             await query('UPDATE users SET sessions_left = $1, is_premium = $2 WHERE id = $3', [newSessions, newSessions > 0, req.user.id]);
         }
 
-        // 1. Resolve Hierarchy IDs to Topic Name
-        let topicParts = [];
+        // 1. Resolve Hierarchy IDs in Parallel
+        const namePromises = [
+            categoryId ? query('SELECT name FROM categories WHERE id = $1', [categoryId]) : Promise.resolve(null),
+            boardId ? query('SELECT name FROM boards WHERE id = $1', [boardId]) : Promise.resolve(null),
+            classId ? query('SELECT name FROM classes WHERE id = $1', [classId]) : Promise.resolve(null),
+            paperStageId ? query('SELECT name FROM papers_stages WHERE id = $1', [paperStageId]) : Promise.resolve(null),
+            streamId ? query('SELECT name FROM streams WHERE id = $1', [streamId]) : Promise.resolve(null),
+            universityId ? query('SELECT name FROM universities WHERE id = $1', [universityId]) : Promise.resolve(null),
+            semesterId ? query('SELECT name FROM semesters WHERE id = $1', [semesterId]) : Promise.resolve(null),
+            subjectId ? query('SELECT name FROM subjects WHERE id = $1', [subjectId]) : Promise.resolve(null),
+            chapterId ? query('SELECT name FROM chapters WHERE id = $1', [chapterId]) : Promise.resolve(null)
+        ];
 
-        // Category
-        if (categoryId) {
-            const cat = await query('SELECT name FROM categories WHERE id = $1', [categoryId]);
-            if (cat.rows[0]) topicParts.push(cat.rows[0].name);
-        }
-        // Board
-        if (boardId) {
-            const board = await query('SELECT name FROM boards WHERE id = $1', [boardId]);
-            if (board.rows[0]) topicParts.push(board.rows[0].name);
-        }
-        // Class
-        if (classId) {
-            const cls = await query('SELECT name FROM classes WHERE id = $1', [classId]);
-            if (cls.rows[0]) topicParts.push(cls.rows[0].name);
-        }
-        // Paper Stage
-        if (paperStageId) {
-            const stage = await query('SELECT name FROM papers_stages WHERE id = $1', [paperStageId]);
-            if (stage.rows[0]) topicParts.push(stage.rows[0].name);
-        }
-        // Stream
-        if (streamId) {
-            const stream = await query('SELECT name FROM streams WHERE id = $1', [streamId]);
-            if (stream.rows[0]) topicParts.push(stream.rows[0].name);
-        }
-        // University
-        if (universityId) {
-            const uni = await query('SELECT name FROM universities WHERE id = $1', [universityId]);
-            if (uni.rows[0]) topicParts.push(uni.rows[0].name);
-        }
-        // Semester
-        if (semesterId) {
-            const sem = await query('SELECT name FROM semesters WHERE id = $1', [semesterId]);
-            if (sem.rows[0]) topicParts.push(sem.rows[0].name);
-        }
-        // Subject
-        if (subjectId) {
-            const sub = await query('SELECT name FROM subjects WHERE id = $1', [subjectId]);
-            if (sub.rows[0]) topicParts.push(sub.rows[0].name);
-        }
-        // Chapter
-        if (chapterId) {
-            const chap = await query('SELECT name FROM chapters WHERE id = $1', [chapterId]);
-            if (chap.rows[0]) topicParts.push(chap.rows[0].name);
-        }
-
+        const results = await Promise.all(namePromises);
+        let topicParts = results.map(r => r?.rows?.[0]?.name).filter(Boolean);
         const topic = topicParts.length > 0 ? topicParts.join(' ') : 'General Knowledge';
 
-        // 2. Generate MCQs using AI
-        console.log(`[GroupBattle] Generating 10 MCQs for topic: ${topic} in ${language}`);
-        const generatedMcqs = await generateMCQInitial(topic, 10, language);
+        // 2. Generate 1st MCQ (Fast Start)
+        console.log(`[GroupBattle] START: Generating 1st MCQ for: ${topic}`);
+        const generatedMcqs = await generateMCQInitial(topic, 1, language);
 
         if (!generatedMcqs || generatedMcqs.length === 0) {
-            return res.status(500).json({ message: 'Failed to generate questions. Please try again.' });
+            return res.status(500).json({ message: 'Failed to generate initial question.' });
         }
 
-        // 3. Prepare synthetic MCQs without saving to global database
-        const finalQuestions = generatedMcqs.map((q, idx) => ({
-            id: `live_${Date.now()}_${idx}`,
-            question: q.question,
-            options: q.options,
-            correct_option: q.correct_option,
-            explanation: q.explanation
-        }));
+        const firstQuestion = {
+            id: `live_${Date.now()}_0`,
+            ...generatedMcqs[0]
+        };
 
-        if (finalQuestions.length === 0) {
-            return res.status(500).json({ message: 'Failed to generate valid questions.' });
-        }
-
-        // 4. Update session with raw MCQ data
+        // 3. Update session
         await query(
             'UPDATE group_sessions SET status = \'active\', category_id = $1, mcq_data = $2 WHERE id = $3',
-            [categoryId, JSON.stringify(finalQuestions), code]
+            [categoryId, JSON.stringify([firstQuestion]), code]
         );
 
-        res.json({ message: 'Battle started', questions: finalQuestions });
+        res.json({ message: 'Battle started', questions: [firstQuestion] });
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Server error starting battle' });
     }
 });
+
+// @route   POST /api/group/:code/next
+// @desc    Get or generate next question (One-by-One)
+// @access  Private
+router.post('/:code/next', verifyToken, async (req, res) => {
+    const { code } = req.params;
+    const { language = 'English' } = req.body;
+
+    try {
+        const sessionRes = await query('SELECT * FROM group_sessions WHERE id = $1', [code]);
+        if (sessionRes.rows.length === 0) return res.status(404).json({ message: 'Session not found' });
+
+        const session = sessionRes.rows[0];
+        let currentQuestions = typeof session.mcq_data === 'string' ? JSON.parse(session.mcq_data) : (session.mcq_data || []);
+
+        if (currentQuestions.length >= 10) {
+            return res.json({ message: 'Session complete', questions: currentQuestions });
+        }
+
+        // 1. Re-resolve topic (or we could cache it, but parallel is fast)
+        const { category_id: categoryId } = session;
+        // In a real app we'd fetch other IDs from the session or request body
+        // For now, we'll re-resolve using whatever IDs we have in the session row if we added them, 
+        // OR we can rely on the frontend sending them back.
+        // Let's assume frontend sends the necessary context or we fetch name of category as fallback.
+        const catRes = await query('SELECT name FROM categories WHERE id = $1', [categoryId]);
+        const topic = catRes.rows[0]?.name || 'General Knowledge';
+
+        console.log(`[GroupBattle] NEXT: Generating question ${currentQuestions.length + 1} for: ${topic}`);
+        const generatedMcqs = await generateMCQInitial(topic, 1, language);
+
+        if (!generatedMcqs || generatedMcqs.length === 0) {
+            return res.status(500).json({ message: 'Failed to generate next question.' });
+        }
+
+        const nextQuestion = {
+            id: `live_${Date.now()}_${currentQuestions.length}`,
+            ...generatedMcqs[0]
+        };
+
+        const updatedQuestions = [...currentQuestions, nextQuestion];
+
+        await query(
+            'UPDATE group_sessions SET mcq_data = $1 WHERE id = $2',
+            [JSON.stringify(updatedQuestions), code]
+        );
+
+        res.json({ message: 'Next question ready', questions: updatedQuestions });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Server error fetching next question' });
+    }
+});
+
 
 // @route   GET /api/group/:id/leaderboard
 // @desc    Get leaderboard for a session
