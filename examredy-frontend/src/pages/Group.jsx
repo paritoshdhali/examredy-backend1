@@ -27,6 +27,7 @@ const Group = () => {
     const [papersStages, setPapersStages] = useState([]);
     const [subjects, setSubjects] = useState([]);
     const [chapters, setChapters] = useState([]);
+    const [semesters, setSemesters] = useState([]);
 
     // Selection States
     const [selectedCat, setSelectedCat] = useState('');
@@ -37,6 +38,7 @@ const Group = () => {
     const [selectedStream, setSelectedStream] = useState('');
     const [selectedDegreeType, setSelectedDegreeType] = useState('');
     const [selectedPaperStage, setSelectedPaperStage] = useState('');
+    const [selectedSemester, setSelectedSemester] = useState('');
     const [selectedSubject, setSelectedSubject] = useState('');
     const [selectedChapter, setSelectedChapter] = useState('');
     const [flowType, setFlowType] = useState('competitive');
@@ -52,7 +54,7 @@ const Group = () => {
         else setFlowType('competitive');
         // Reset lower cascade
         setSelectedState(''); setSelectedBoard(''); setSelectedUniversity(''); setSelectedClass('');
-        setSelectedStream(''); setSelectedDegreeType(''); setSelectedPaperStage(''); setSelectedSubject(''); setSelectedChapter('');
+        setSelectedStream(''); setSelectedDegreeType(''); setSelectedPaperStage(''); setSelectedSemester(''); setSelectedSubject(''); setSelectedChapter('');
     }, [selectedCat, categories]);
 
     // Initial Load
@@ -86,8 +88,10 @@ const Group = () => {
     useEffect(() => {
         if (selectedUniversity && flowType === 'university') {
             api.get(`/structure/degree-types/${selectedUniversity}`).then(res => setDegreeTypes(res.data)).catch(() => setDegreeTypes([]));
+            api.get('/structure/semesters').then(res => setSemesters(res.data)).catch(() => setSemesters([]));
         } else {
             setDegreeTypes([]);
+            setSemesters([]);
         }
     }, [selectedUniversity, flowType]);
 
@@ -102,8 +106,8 @@ const Group = () => {
             url += `&board_id=${selectedBoard}&class_id=${selectedClass}`;
             if (selectedStream) url += `&stream_id=${selectedStream}`;
             shouldFetch = true;
-        } else if (flowType === 'university' && selectedUniversity && selectedDegreeType) {
-            url += `&university_id=${selectedUniversity}&degree_type_id=${selectedDegreeType}`;
+        } else if (flowType === 'university' && selectedUniversity && selectedDegreeType && selectedSemester) {
+            url += `&university_id=${selectedUniversity}&degree_type_id=${selectedDegreeType}&semester_id=${selectedSemester}`;
             shouldFetch = true;
         } else if (flowType === 'competitive' && selectedPaperStage) {
             url += `&paper_stage_id=${selectedPaperStage}`;
@@ -116,7 +120,8 @@ const Group = () => {
         if (selectedSubject) api.get(`/structure/chapters/${selectedSubject}`).then(res => setChapters(res.data));
     }, [selectedSubject]);
 
-    const classNum = selectedClass ? parseInt(classes.find(c => (c.class_id || c.id) == selectedClass)?.name.replace(/\D/g, '')) : 0;
+    const foundClass = classes.find(c => (c.class_id || c.id) == selectedClass);
+    const classNum = selectedClass && foundClass ? parseInt(foundClass.name.replace(/\D/g, '')) : 0;
     const needsStream = classNum >= 11;
 
     // Polling for lobby status
@@ -451,7 +456,7 @@ const Group = () => {
                                             </button>
                                         )}
                                     </div>
-                                    <div className="col-span-2">
+                                    <div className="col-span-2 sm:col-span-1">
                                         <select value={selectedDegreeType} onChange={e => { setSelectedDegreeType(e.target.value); setSelectedSubject(''); }} disabled={!selectedUniversity || isFetchingAI === 'degreeTypes'} className="w-full border-2 border-gray-100 rounded-xl px-2 py-3 outline-none disabled:bg-gray-50">
                                             <option value="">{isFetchingAI === 'degreeTypes' ? 'AI fetching...' : 'Degree Type'}</option>
                                             {degreeTypes.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
@@ -461,6 +466,12 @@ const Group = () => {
                                                 ✨ Fetch Degree Types
                                             </button>
                                         )}
+                                    </div>
+                                    <div className="col-span-2 sm:col-span-1">
+                                        <select value={selectedSemester} onChange={e => setSelectedSemester(e.target.value)} disabled={!selectedDegreeType} className="w-full border-2 border-gray-100 rounded-xl px-2 py-3 outline-none disabled:bg-gray-50">
+                                            <option value="">Semester</option>
+                                            {semesters.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                                        </select>
                                     </div>
                                 </div>
                             )}
