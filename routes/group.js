@@ -200,6 +200,11 @@ router.post('/start', verifyToken, async (req, res) => {
             const cls = await query('SELECT name FROM classes WHERE id = $1', [classId]);
             if (cls.rows[0]) topicParts.push(cls.rows[0].name);
         }
+        // Paper Stage
+        if (paperStageId) {
+            const stage = await query('SELECT name FROM papers_stages WHERE id = $1', [paperStageId]);
+            if (stage.rows[0]) topicParts.push(stage.rows[0].name);
+        }
         // Stream
         if (streamId) {
             const stream = await query('SELECT name FROM streams WHERE id = $1', [streamId]);
@@ -209,6 +214,11 @@ router.post('/start', verifyToken, async (req, res) => {
         if (universityId) {
             const uni = await query('SELECT name FROM universities WHERE id = $1', [universityId]);
             if (uni.rows[0]) topicParts.push(uni.rows[0].name);
+        }
+        // Semester
+        if (semesterId) {
+            const sem = await query('SELECT name FROM semesters WHERE id = $1', [semesterId]);
+            if (sem.rows[0]) topicParts.push(sem.rows[0].name);
         }
         // Subject
         if (subjectId) {
