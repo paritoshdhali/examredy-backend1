@@ -399,57 +399,6 @@ const initDB = async () => {
             } catch (e) { }
         }
 
-        // --- SCHEMA REPAIR: Dupe Cleanup & UNIQUE Constraints for ON CONFLICT ---
-        const repairConfigs = [
-            { table: 'boards', cols: ['state_id', 'name'], name: 'unique_board_per_state' },
-            { table: 'universities', cols: ['state_id', 'name'], name: 'unique_university_state' },
-            { table: 'papers_stages', cols: ['category_id', 'name'], name: 'unique_paper_category' },
-            { table: 'chapters', cols: ['subject_id', 'name'], name: 'unique_chapter_per_subject' }
-        ];
-
-        for (const cfg of repairConfigs) {
-            try {
-                console.log(`Repairing schema for ${cfg.table}...`);
-                // 1. Delete duplicates based on the target columns
-                const colA = cfg.cols[0];
-                const colB = cfg.cols[1];
-                await query(`DELETE FROM ${cfg.table} a USING ${cfg.table} b 
-                             WHERE a.id < b.id 
-                             AND (a.${colA} = b.${colA} OR (a.${colA} IS NULL AND b.${colA} IS NULL)) 
-                             AND a.${colB} = b.${colB};`);
-
-                // 2. Add the UNIQUE constraint
-                await query(`ALTER TABLE ${cfg.table} ADD CONSTRAINT ${cfg.name} UNIQUE (${cfg.cols.join(', ')});`);
-                console.log(`✅ Constraint ${cfg.name} enforced on ${cfg.table}.`);
-            } catch (e) {
-                // If it already exists, this will fail silently which is fine
-            }
-        }
-
-        // --- Class Name Unique Constraint Repair ---
-        try {
-            console.log('Synchronizing classes table unique constraint...');
-            // Delete duplicates if any
-            await query(`DELETE FROM classes a USING classes b WHERE a.id < b.id AND LOWER(a.name) = LOWER(b.name);`);
-            // Add unique constraint if not exists
-            await query(`ALTER TABLE classes ADD CONSTRAINT unique_class_name UNIQUE (name);`);
-            console.log('✅ Class unique constraint enforced.');
-        } catch (e) {
-            // Fails if exists or other issues, usually fine
-        }
-
-        // --- Chapter Unique Constraint Repair ---
-        try {
-            console.log('Synchronizing chapters table unique constraint...');
-            // Delete duplicates if any (same subject and name)
-            await query(`DELETE FROM chapters a USING chapters b WHERE a.id < b.id AND a.subject_id = b.subject_id AND LOWER(a.name) = LOWER(b.name);`);
-            // Add unique constraint if not exists
-            await query(`ALTER TABLE chapters ADD CONSTRAINT unique_chapter_per_subject UNIQUE (subject_id, name);`);
-            console.log('✅ Chapter unique constraint enforced.');
-        } catch (e) {
-            // Fails if exists, which is fine
-        }
-
         // SEO and Site Config (Requirement 8)
         const siteDefaults = {
             'SITE_TITLE': 'ExamRedy - AI MCQ Practice',
@@ -586,25 +535,7 @@ const initDB = async () => {
             console.warn('⚠️ WARNING: JWT_SECRET is not defined in .env. Falling back to default.');
         }
 
-        // PERFORMANCE INDEXES
-        await query(`CREATE INDEX IF NOT EXISTS idx_boards_state ON boards(state_id);`);
-        await query(`CREATE INDEX IF NOT EXISTS idx_subjects_board ON subjects(board_id);`);
-        await query(`CREATE INDEX IF NOT EXISTS idx_subjects_class ON subjects(class_id);`);
-        await query(`CREATE INDEX IF NOT EXISTS idx_chapters_subject ON chapters(subject_id);`);
-        await query(`CREATE INDEX IF NOT EXISTS idx_univ_state ON universities(state_id);`);
-        await query(`CREATE INDEX IF NOT EXISTS idx_sem_univ ON semesters(university_id);`);
-        await query(`CREATE INDEX IF NOT EXISTS idx_mcq_cat ON mcq_pool(category_id);`);
-        await query(`CREATE INDEX IF NOT EXISTS idx_user_usage ON user_daily_usage(user_id);`);
-
-        console.log('✅ All Database Tables Verified/Created & Indexes Applied');
-
-        // --- DATA HYGIENE (Requirement 2 & 4) ---
-        // Purge any pre-existing dummy/sample data to avoid confusion with real AI data
-        console.log('Running Data Hygiene: Purging Sample/Dummy records...');
-        await query(`DELETE FROM chapters WHERE name ILIKE '%SAMPLE%' OR name ILIKE '%TEST%' OR name ILIKE '%DUMMY%';`);
-        await query(`DELETE FROM subjects WHERE name ILIKE '%SAMPLE%' OR name ILIKE '%TEST%' OR name ILIKE '%DUMMY%';`);
-        await query(`DELETE FROM boards WHERE name ILIKE '%SAMPLE%' OR name ILIKE '%TEST%' OR name ILIKE '%DUMMY%' OR name ILIKE 'DEBUG_%' OR name ILIKE '%FIX-V1%' OR name ILIKE '%REQUEST FAILED%';`);
-        console.log('✅ Data Hygiene Complete: Only Real Data remains.');
+        console.log('✅ All Database Tables Verified/Created');
 
         // Run Preload after DB init
         await preloadData();
