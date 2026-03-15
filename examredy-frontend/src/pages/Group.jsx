@@ -133,24 +133,27 @@ const Group = () => {
                 try {
                     const res = await api.get(`/group/${sessionCode}/status`);
                     setParticipants(res.data.participants);
-                    setIsHost(res.data.isHost);
-
-                    if (res.data.language && !res.data.isHost) {
-                        setSelectedLanguage(res.data.language);
-                    }
-                    if (res.data.subjectId && !isHost && !selectedSubject) {
-                        setSelectedSubject(res.data.subjectId);
-                    }
-                    if (res.data.chapterId && !isHost && !selectedChapter) {
-                        setSelectedChapter(res.data.chapterId);
+                    
+                    // Core Sync: Update states if backend has data and user is NOT host
+                    if (!res.data.isHost) {
+                        setIsHost(false);
+                        if (res.data.language) setSelectedLanguage(res.data.language);
+                        
+                        // Functional updates to avoid stale closure issues
+                        if (res.data.subjectId) setSelectedSubject(prev => prev || res.data.subjectId);
+                        if (res.data.chapterId) setSelectedChapter(prev => prev || res.data.chapterId);
+                    } else {
+                        setIsHost(true);
                     }
 
                     if (res.data.status === 'active' && res.data.questions.length > 0) {
                         // For synchronization: only update if the count has changed
-                        if (res.data.questions.length !== battleQuestions.length) {
-                            console.log("[GroupSync] New question detected. Updating local list.");
-                            setBattleQuestions(res.data.questions);
-                        }
+                        setBattleQuestions(prev => {
+                            if (res.data.questions.length !== prev.length) {
+                                return res.data.questions;
+                            }
+                            return prev;
+                        });
                         if (step === 'lobby') setStep('active');
                     }
                 } catch (err) {
@@ -159,7 +162,7 @@ const Group = () => {
             }, 3000); // Poll every 3 seconds
         }
         return () => clearInterval(interval);
-    }, [step, sessionCode, battleQuestions.length]);
+    }, [step, sessionCode]);
 
     // Create a new session
     const handleCreate = async () => {
