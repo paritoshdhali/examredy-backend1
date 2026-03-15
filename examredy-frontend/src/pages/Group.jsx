@@ -131,7 +131,10 @@ const Group = () => {
             interval = setInterval(async () => {
                 try {
                     const res = await api.get(`/group/${sessionCode}/status`);
-                    if (res.data.language && !isHost) {
+                    setParticipants(res.data.participants);
+                    setIsHost(res.data.isHost);
+
+                    if (res.data.language && !res.data.isHost) {
                         setSelectedLanguage(res.data.language);
                     }
                     if (res.data.subjectId && !isHost && !selectedSubject) {
@@ -164,6 +167,7 @@ const Group = () => {
             const res = await api.post('/group/create'); // Updated to use axios instance
             setSessionCode(res.data.code);
             setStep('lobby');
+            setIsHost(true);
             setParticipants([{ username: 'You (Host)', isHost: true }]);
         } catch (err) {
             if (err.response?.data?.code === 'SESSIONS_EXHAUSTED') {
@@ -184,6 +188,7 @@ const Group = () => {
             await api.post('/group/join', { code: inputCode }); // Code must be in the body, not url
             setSessionCode(inputCode);
             setStep('lobby');
+            setIsHost(false);
             setParticipants([{ username: 'You', isHost: false }]);
         } catch (err) {
             setError(err.response?.data?.message || 'Invalid Session Code');
